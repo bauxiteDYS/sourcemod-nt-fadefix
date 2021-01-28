@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.1.1"
+#define PLUGIN_VERSION "0.1.2"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -134,6 +134,9 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	if (new_team <= TEAM_SPECTATOR) {
 		return;
 	}
+
+	_unfade_once_allowed[client] = false;
+	_in_death_fade[client] = false;
 
 	// Need to wait for the team change to have gone through to ensure the fade will work here.
 	CreateTimer(0.1, Timer_FadePlayer, userid, TIMER_FLAG_NO_MAPCHANGE);
