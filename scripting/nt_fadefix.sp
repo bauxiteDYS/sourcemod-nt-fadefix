@@ -129,6 +129,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
+	// Need to wait for the team change to have gone through to ensure the fade will work here.
 	CreateTimer(0.1, Timer_FadePlayer, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
