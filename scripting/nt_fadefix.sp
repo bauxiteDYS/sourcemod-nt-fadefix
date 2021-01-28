@@ -136,6 +136,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 public Action Timer_FadePlayer(Handle timer, int userid)
 {
 	int client = GetClientOfUserId(userid);
+	// Checking for team again in case the player got rapidly moved to spectator right after joining a playing team.
 	if (client != 0 && !IsPlayerAlive(client) && GetClientTeam(client) > TEAM_SPECTATOR) {
 		Handle userMsg = StartMessageOne("Fade", client);
 		BfWriteShort(userMsg, 0);
