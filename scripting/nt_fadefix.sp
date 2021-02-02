@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.1.2"
+#define PLUGIN_VERSION "0.1.3"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -245,11 +245,13 @@ public Action MsgHook_Fade(UserMsg msg_id, BfRead msg, const int[] players,
 			continue;
 		}
 
-		bool skip_from_filter;
-		for (int j = 0; j < num_fade_exceptions; ++j) {
-			if (players[i] == fade_exceptions[j]) {
-				skip_from_filter = true;
-				break;
+		bool skip_from_filter = IsPlayerAlive(i);
+		if (!skip_from_filter) {
+			for (int j = 0; j < num_fade_exceptions; ++j) {
+				if (players[i] == fade_exceptions[j]) {
+					skip_from_filter = true;
+					break;
+				}
 			}
 		}
 
