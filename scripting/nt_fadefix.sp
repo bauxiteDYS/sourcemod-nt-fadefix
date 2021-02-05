@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.1.3"
+#define PLUGIN_VERSION "0.1.4"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -70,7 +70,7 @@ public void OnPluginStart()
 
 	HookUserMessage(USERMSG_FADE, MsgHook_Fade, true);
 
-	CreateTimer(1.0, Timer_ReFade);
+	CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
 }
 
 public void OnClientDisconnect(int client)
