@@ -160,7 +160,7 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	return Plugin_Stop;
 }
 
-void FadeAllDeadPlayers()
+void FadeAllDeadPlayers(bool ignore_clients_in_death_fade = false)
 {
 	int fade_clients[NEO_MAX_PLAYERS];
 	int num_fade_clients;
@@ -169,6 +169,9 @@ void FadeAllDeadPlayers()
 			GetClientTeam(client) <= TEAM_SPECTATOR ||
 			IsPlayerAlive(client) || _in_death_fade[client])
 		{
+			continue;
+		}
+		if (ignore_clients_in_death_fade && _in_death_fade[client]) {
 			continue;
 		}
 		fade_clients[num_fade_clients++] = client;
@@ -192,7 +195,7 @@ void FadeAllDeadPlayers()
 public Action Timer_ReFade(Handle timer)
 {
 	if (IsFadeEnforced()) {
-		FadeAllDeadPlayers();
+		FadeAllDeadPlayers(true);
 	}
 	return Plugin_Continue;
 }
