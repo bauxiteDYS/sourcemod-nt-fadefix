@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.1.5"
+#define PLUGIN_VERSION "0.2.0"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -36,10 +36,8 @@ public Plugin myinfo = {
 
 #define NEO_MAX_PLAYERS 32
 
-// Use "meta game" to get a list of user message indices for a specific game.
-enum UserMsg {
-	USERMSG_FADE = 11
-};
+#define DEATH_FADE_USERMSG_NAME "Fade"
+UserMsg _msg_id_fade = INVALID_MESSAGE_ID;
 
 static bool _unfade_once_allowed[NEO_MAX_PLAYERS + 1];
 static bool _in_death_fade[NEO_MAX_PLAYERS + 1];
@@ -48,6 +46,11 @@ ConVar g_hCvar_FadeEnabled = null;
 
 public void OnPluginStart()
 {
+	_msg_id_fade = GetUserMessageId(DEATH_FADE_USERMSG_NAME);
+	if (_msg_id_fade == INVALID_MESSAGE_ID) {
+		SetFailState("Could not find usermsg \"%s\"", DEATH_FADE_USERMSG_NAME);
+	}
+
 	CreateConVar("sm_nt_fadefix_version", PLUGIN_VERSION, "NT Competitive Fade Fix plugin version.", FCVAR_DONTRECORD);
 
 	g_hCvar_FadeEnabled = FindConVar("mp_forcecamera");
@@ -68,7 +71,7 @@ public void OnPluginStart()
 		SetFailState("Failed to hook event player_team");
 	}
 
-	HookUserMessage(USERMSG_FADE, MsgHook_Fade, true);
+	HookUserMessage(_msg_id_fade, MsgHook_Fade, true);
 
 	CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
 }
@@ -95,7 +98,9 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 
 	_unfade_once_allowed[client] = true;
 
-	Handle userMsg = StartMessageOne("Fade", client);
+	int clients[1];
+	clients[0] = client;
+	Handle userMsg = StartMessageEx(_msg_id_fade, clients, 1, USERMSG_RELIABLE);
 	BfWriteShort(userMsg, 0);
 	BfWriteShort(userMsg, 0);
 	BfWriteShort(userMsg, FADE_FLAGS_CLEAR_FADE);
@@ -147,7 +152,9 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	int client = GetClientOfUserId(userid);
 	// Checking for team again in case the player got rapidly moved to spectator right after joining a playing team.
 	if (client != 0 && !IsPlayerAlive(client) && GetClientTeam(client) > TEAM_SPECTATOR) {
-		Handle userMsg = StartMessageOne("Fade", client);
+		int clients[1];
+		clients[0] = client;
+		Handle userMsg = StartMessageEx(_msg_id_fade, clients, 1, USERMSG_RELIABLE);
 		BfWriteShort(userMsg, 0);
 		BfWriteShort(userMsg, 0);
 		BfWriteShort(userMsg, FADE_FLAGS_ADD_FADE);
@@ -181,7 +188,7 @@ void FadeAllDeadPlayers(bool ignore_clients_in_death_fade = false)
 		return;
 	}
 
-	Handle userMsg = StartMessage("Fade", fade_clients, num_fade_clients);
+	Handle userMsg = StartMessageEx(_msg_id_fade, fade_clients, num_fade_clients, USERMSG_RELIABLE);
 	BfWriteShort(userMsg, 0);
 	BfWriteShort(userMsg, 0);
 	BfWriteShort(userMsg, FADE_FLAGS_ADD_FADE);
@@ -273,7 +280,7 @@ public Action MsgHook_Fade(UserMsg msg_id, BfRead msg, const int[] players,
 			int color_a = msg.ReadByte();
 
 			// Mimicking the message of this callback, except for the new recipient list.
-			Handle userMsg = StartMessage("Fade", allowed_players, allowed_num_players);
+			Handle userMsg = StartMessageEx(_msg_id_fade, allowed_players, allowed_num_players, USERMSG_RELIABLE);
 			BfWriteShort(userMsg, duration);
 			BfWriteShort(userMsg, holdtime);
 			BfWriteShort(userMsg, fade_flags);
