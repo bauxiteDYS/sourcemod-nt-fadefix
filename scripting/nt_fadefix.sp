@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.2.0"
+#define PLUGIN_VERSION "0.2.1"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -85,7 +85,7 @@ public void OnClientDisconnect(int client)
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
 	if (IsFadeEnforced()) {
-		FadeAllDeadPlayers();
+		FadeAllDeadPlayers(false);
 	}
 }
 
@@ -167,14 +167,14 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	return Plugin_Stop;
 }
 
-void FadeAllDeadPlayers(bool ignore_clients_in_death_fade = false)
+void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 {
 	int fade_clients[NEO_MAX_PLAYERS];
 	int num_fade_clients;
 	for (int client = 1; client <= MaxClients; ++client) {
 		if (!IsClientInGame(client) || IsFakeClient(client) ||
 			GetClientTeam(client) <= TEAM_SPECTATOR ||
-			IsPlayerAlive(client) || _in_death_fade[client])
+			IsPlayerAlive(client))
 		{
 			continue;
 		}
