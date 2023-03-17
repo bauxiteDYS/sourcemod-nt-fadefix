@@ -4,11 +4,12 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.2.1"
+#define PLUGIN_VERSION "0.3.0"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
-	description = "Block any unintended un-fade user messages. Hide new round vision to block \"ghosting\" for opposing team's loadouts.",
+	description = "Block any unintended un-fade user messages. Hide new round \
+vision to block \"ghosting\" for opposing team's loadouts.",
 	author = "Rain",
 	version = PLUGIN_VERSION,
 	url = "https://github.com/Rainyan/sourcemod-nt-fadefix"
@@ -32,33 +33,54 @@ public Plugin myinfo = {
 //   byte  - RGBA blue.
 //   byte  - RGBA alpha.
 
-#define DEATH_FADE_DURATION_MS 3840
+#define DEATH_FADE_DURATION_SEC 3.840
 
-#define NEO_MAX_PLAYERS 32
+// UserMsg enumerations.
+// Anonymous because otherwise SM complains when using these to access array
+// indices, or when comparing named enums against integers.
+enum {
+	UM_FADE = 0,
+	UM_RESETHUD,
+	UM_VGUIMENU,
 
-#define DEATH_FADE_USERMSG_NAME "Fade"
-UserMsg _msg_id_fade = INVALID_MESSAGE_ID;
+	UM_ENUM_COUNT
+};
 
-static bool _unfade_once_allowed[NEO_MAX_PLAYERS + 1];
-static bool _in_death_fade[NEO_MAX_PLAYERS + 1];
+UserMsg _usermsgs[UM_ENUM_COUNT] = { INVALID_MESSAGE_ID, ... };
+char _usermsg_name[UM_ENUM_COUNT][] = {
+	"Fade",
+	"ResetHUD",
+	"VGUIMenu",
+};
+
+static bool _unfade_allowed[NEO_MAXPLAYERS + 1];
+static bool _in_death_fade[NEO_MAXPLAYERS + 1];
 
 ConVar g_hCvar_FadeEnabled = null;
 
+Handle g_hTimer_ReFade = INVALID_HANDLE;
+
 public void OnPluginStart()
 {
-	_msg_id_fade = GetUserMessageId(DEATH_FADE_USERMSG_NAME);
-	if (_msg_id_fade == INVALID_MESSAGE_ID) {
-		SetFailState("Could not find usermsg \"%s\"", DEATH_FADE_USERMSG_NAME);
+	for (int i = 0; i < UM_ENUM_COUNT; ++i)
+	{
+		_usermsgs[i] = GetUserMessageId(_usermsg_name[i]);
+		if (_usermsgs[i] == INVALID_MESSAGE_ID)
+		{
+			SetFailState("Could not find usermsg \"%s\"", _usermsg_name[i]);
+		}
+		HookUserMessage(_usermsgs[i], OnUserMsg, true);
 	}
 
-	CreateConVar("sm_nt_fadefix_version", PLUGIN_VERSION, "NT Competitive Fade Fix plugin version.", FCVAR_DONTRECORD);
+	CreateConVar("sm_nt_fadefix_version", PLUGIN_VERSION,
+		"NT Competitive Fade Fix plugin version.", FCVAR_DONTRECORD);
 
 	g_hCvar_FadeEnabled = FindConVar("mp_forcecamera");
 	if (g_hCvar_FadeEnabled == null) {
 		SetFailState("Failed to find cvar for g_hCvar_FadeEnabled");
 	}
 
-	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_PostNoCopy)) {
+	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_Pre)) {
 		SetFailState("Failed to hook event game_round_start");
 	}
 	if (!HookEventEx("player_spawn", Event_PlayerSpawn, EventHookMode_Post)) {
@@ -71,44 +93,51 @@ public void OnPluginStart()
 		SetFailState("Failed to hook event player_team");
 	}
 
-	HookUserMessage(_msg_id_fade, MsgHook_Fade, true);
-
-	CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
+	g_hTimer_ReFade = CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
 }
 
 public void OnClientDisconnect(int client)
 {
-	_unfade_once_allowed[client] = false;
+	_unfade_allowed[client] = false;
 	_in_death_fade[client] = false;
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
-	if (IsFadeEnforced()) {
+	if (g_hTimer_ReFade != INVALID_HANDLE)
+	{
+		KillTimer(g_hTimer_ReFade);
+		g_hTimer_ReFade = CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
+	}
+
+	if (g_hCvar_FadeEnabled.BoolValue) {
 		FadeAllDeadPlayers(false);
+	}
+}
+
+public void OnMapEnd()
+{
+	if (g_hTimer_ReFade != INVALID_HANDLE)
+	{
+		KillTimer(g_hTimer_ReFade);
+		g_hTimer_ReFade = INVALID_HANDLE;
 	}
 }
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (client == 0 || IsFakeClient(client) || GetClientTeam(client) <= TEAM_SPECTATOR) {
+	if (client == 0 || IsFakeClient(client) ||
+		GetClientTeam(client) <= TEAM_SPECTATOR)
+	{
 		return;
 	}
 
-	_unfade_once_allowed[client] = true;
+	_unfade_allowed[client] = true;
 
 	int clients[1];
 	clients[0] = client;
-	Handle userMsg = StartMessageEx(_msg_id_fade, clients, 1, USERMSG_RELIABLE);
-	BfWriteShort(userMsg, 0);
-	BfWriteShort(userMsg, 0);
-	BfWriteShort(userMsg, FADE_FLAGS_CLEAR_FADE);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 0);
-	EndMessage();
+	SendFadeMessage(clients, 1, FADE_FLAGS_CLEAR_FADE);
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
@@ -120,12 +149,12 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	}
 
 	_in_death_fade[victim] = true;
-	CreateTimer(DEATH_FADE_DURATION_MS * 0.001, Timer_DeathFadeFinished, victim_userid);
+	CreateTimer(DEATH_FADE_DURATION_SEC, Timer_DeathFadeFinished, victim_userid);
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!IsFadeEnforced()) {
+	if (!g_hCvar_FadeEnabled.BoolValue) {
 		return;
 	}
 
@@ -140,36 +169,46 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
-	_unfade_once_allowed[client] = false;
+	_unfade_allowed[client] = false;
 	_in_death_fade[client] = false;
 
-	// Need to wait for the team change to have gone through to ensure the fade will work here.
+	// Need to wait for the team change to have gone through to ensure the
+	// fade will work here.
 	CreateTimer(0.1, Timer_FadePlayer, userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public Action Timer_FadePlayer(Handle timer, int userid)
 {
 	int client = GetClientOfUserId(userid);
-	// Checking for team again in case the player got rapidly moved to spectator right after joining a playing team.
-	if (client != 0 && !IsPlayerAlive(client) && GetClientTeam(client) > TEAM_SPECTATOR) {
+	// Checking for team again in case the player got rapidly moved to
+	// spectator right after joining a playing team.
+	if (client != 0 && !IsPlayerAlive(client) &&
+		GetClientTeam(client) > TEAM_SPECTATOR)
+	{
 		int clients[1];
 		clients[0] = client;
-		Handle userMsg = StartMessageEx(_msg_id_fade, clients, 1, USERMSG_RELIABLE);
-		BfWriteShort(userMsg, 0);
-		BfWriteShort(userMsg, 0);
-		BfWriteShort(userMsg, FADE_FLAGS_ADD_FADE);
-		BfWriteByte(userMsg, 0);
-		BfWriteByte(userMsg, 0);
-		BfWriteByte(userMsg, 0);
-		BfWriteByte(userMsg, 255);
-		EndMessage();
+		SendFadeMessage(clients, 1, FADE_FLAGS_ADD_FADE);
 	}
 	return Plugin_Stop;
 }
 
+void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
+{
+	Handle userMsg = StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
+		USERMSG_RELIABLE);
+	BfWriteShort(userMsg, 0);
+	BfWriteShort(userMsg, 0);
+	BfWriteShort(userMsg, fade_flags);
+	BfWriteByte(userMsg, 0);
+	BfWriteByte(userMsg, 0);
+	BfWriteByte(userMsg, 0);
+	BfWriteByte(userMsg, 255);
+	EndMessage();
+}
+
 void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 {
-	int fade_clients[NEO_MAX_PLAYERS];
+	int fade_clients[NEO_MAXPLAYERS];
 	int num_fade_clients;
 	for (int client = 1; client <= MaxClients; ++client) {
 		if (!IsClientInGame(client) || IsFakeClient(client) ||
@@ -188,20 +227,12 @@ void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 		return;
 	}
 
-	Handle userMsg = StartMessageEx(_msg_id_fade, fade_clients, num_fade_clients, USERMSG_RELIABLE);
-	BfWriteShort(userMsg, 0);
-	BfWriteShort(userMsg, 0);
-	BfWriteShort(userMsg, FADE_FLAGS_ADD_FADE);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 255);
-	EndMessage();
+	SendFadeMessage(fade_clients, num_fade_clients, FADE_FLAGS_ADD_FADE);
 }
 
 public Action Timer_ReFade(Handle timer)
 {
-	if (IsFadeEnforced()) {
+	if (g_hCvar_FadeEnabled.BoolValue) {
 		FadeAllDeadPlayers(true);
 	}
 	return Plugin_Continue;
@@ -216,101 +247,109 @@ public Action Timer_DeathFadeFinished(Handle timer, int userid)
 	return Plugin_Stop;
 }
 
-public Action MsgHook_Fade(UserMsg msg_id, BfRead msg, const int[] players,
+public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 	int playersNum, bool reliable, bool init)
 {
-	int duration = msg.ReadShort();
-	int holdtime = msg.ReadShort();
-	int fade_flags = msg.ReadShort();
-
-	// This is not a type of fade that could lead to the screen un-fading.
-	if ((fade_flags & (FADE_FLAGS_ADD_FADE)) && (!(fade_flags & FADE_FLAGS_CLEAR_FADE))) {
+	if (playersNum != 1)
+	{
+		LogError("OnUserMsg with unexpected num players: %d", playersNum);
 		return Plugin_Continue;
 	}
 
-	// Players who are allowed one unfiltered fade message (just spawned, etc.)
-	int fade_exceptions[NEO_MAX_PLAYERS];
-	int num_fade_exceptions;
-
-	for (int i = 0; i < playersNum; ++i) {
-		if (_unfade_once_allowed[players[i]]) {
-			_unfade_once_allowed[players[i]] = false;
-			fade_exceptions[num_fade_exceptions++] = players[i];
-		}
-	}
-
-	if (!IsFadeEnforced()) {
+	if (!IsClientInGame(players[0]) ||
+		GetClientTeam(players[0]) <= TEAM_SPECTATOR)
+	{
 		return Plugin_Continue;
 	}
 
-	// Need a new modifiable array to filter out recipients for this fade message.
-	int[] allowed_players = new int[playersNum];
-	int allowed_num_players = playersNum;
-
-	// Filter out any players inside playable teams from this unfade message.
-	for (int i = 0; i < playersNum; ++i) {
-		if (!IsClientInGame(players[i]) || IsFakeClient(players[i]) ||
-			GetClientTeam(players[i]) <= TEAM_SPECTATOR)
+	if (msg_id == _usermsgs[UM_FADE])
+	{
+		if (!g_hCvar_FadeEnabled.BoolValue ||
+			IsPlayerAlive(players[0]))
 		{
-			continue;
+			return Plugin_Continue;
 		}
 
-		bool skip_from_filter = IsPlayerAlive(players[i]);
-		if (!skip_from_filter) {
-			for (int j = 0; j < num_fade_exceptions; ++j) {
-				if (players[i] == fade_exceptions[j]) {
-					skip_from_filter = true;
-					break;
-				}
+		msg.ReadShort(); // duration
+		msg.ReadShort(); // holdtime
+		int fade_flags = msg.ReadShort();
+
+		if (fade_flags & FADE_FLAGS_CLEAR_FADE)
+		{
+			if (_unfade_allowed[players[0]])
+			{
+				_unfade_allowed[players[0]] = false;
+				return Plugin_Continue;
 			}
 		}
-
-		if (!skip_from_filter) {
-			RemovePlayerFromArray(allowed_players, allowed_num_players, players[i]);
+		else if (fade_flags & FADE_FLAGS_ADD_FADE)
+		{
+			return Plugin_Continue;
 		}
-	}
 
-	// Did we actually filter out any players?
-	if (allowed_num_players != playersNum) {
-		// Don't bother re-fading if there's 0 players remaining.
-		if (allowed_num_players != 0) {
-			int color_r = msg.ReadByte();
-			int color_g = msg.ReadByte();
-			int color_b = msg.ReadByte();
-			int color_a = msg.ReadByte();
-
-			// Mimicking the message of this callback, except for the new recipient list.
-			Handle userMsg = StartMessageEx(_msg_id_fade, allowed_players, allowed_num_players, USERMSG_RELIABLE);
-			BfWriteShort(userMsg, duration);
-			BfWriteShort(userMsg, holdtime);
-			BfWriteShort(userMsg, fade_flags);
-			BfWriteByte(userMsg, color_r);
-			BfWriteByte(userMsg, color_g);
-			BfWriteByte(userMsg, color_b);
-			BfWriteByte(userMsg, color_a);
-			EndMessage();
-		}
 		return Plugin_Handled;
+	}
+	// Clients are viewing a VGUI menu, such as the weapons loadout menu.
+	else if (msg_id == _usermsgs[UM_VGUIMENU])
+	{
+		if (_unfade_allowed[players[0]])
+		{
+			return Plugin_Continue;
+		}
+
+		char buffer[12];
+		msg.ReadString(buffer, sizeof(buffer));
+
+		/* The player VGUIMenu flow actually fires a ton of usermessages,
+		   many of them redundant. Since it seems there's a rare bug with
+		   the UserMsg timing going out-of-order, we're specifically blocking
+		   any unrelated messages for clients in the spawn flow.
+
+			Event & usermsg flow for (
+				Event_RoundStart, Event_PlayerSpawn,
+				UserMsg_VGUIMenu, UserMsg_ResetHUD
+			):
+
+			Event_RoundStart // <-- new round starts
+				VGUIMenu -> specgui: hide
+				VGUIMenu -> scores: show
+				VGUIMenu -> specgui: show
+				VGUIMenu -> specmenu: show
+				VGUIMenu -> class: show       // <-- Class selection
+				-------------------------
+				VGUIMenu -> loadout: hide
+				VGUIMenu -> specgui: hide
+				VGUIMenu -> specmenu: show
+				VGUIMenu -> specgui: show
+				VGUIMenu -> overview: show
+				VGUIMenu -> scores: show
+				VGUIMenu -> specgui: show
+				VGUIMenu -> specmenu: show
+				VGUIMenu -> loadout: show    // <-- Loadout selection
+				-------------------------
+				VGUIMenu -> loadout_dev: show
+				VGUIMenu -> class: show
+				-------------------------
+			Event_PlayerSpawn // <-- player spawns in the world
+				ResetHUD                    // <-- Closes all HUD menus
+		*/
+		if (StrEqual(buffer, "class") || StrEqual(buffer, "loadout"))
+		{
+			return Plugin_Continue;
+		}
+		// Block any panel other than "class" and "loadout".
+		return Plugin_Handled;
+	}
+	// Clients are closing their VGUI menus,
+	// this is called after client closes their loadout selection menu.
+	else if (msg_id == _usermsgs[UM_RESETHUD])
+	{
+		//_unfade_allowed[players[0]] = false; // TODO: unnecessary(?)
+	}
+	else
+	{
+		LogError("Unexpected usermsg: %d", msg_id);
 	}
 
 	return Plugin_Continue;
-}
-
-bool IsFadeEnforced()
-{
-	return g_hCvar_FadeEnabled.BoolValue;
-}
-
-void RemovePlayerFromArray(int[] array, int& num_elements, const int player)
-{
-    for (int i = 0; i < num_elements; ++i) {
-        if (array[i] == player) {
-            for (int j = i + 1; j < num_elements; ++j) {
-                array[j - 1] = array[j]; // move each superseding element back
-            }
-            // clear the trailing copy of the final moved element
-            array[--num_elements] = 0;
-            return;
-        }
-    }
 }
