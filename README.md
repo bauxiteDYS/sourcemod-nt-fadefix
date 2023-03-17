@@ -7,4 +7,8 @@ The plugin will also enable the fade-to-black on new round, so that players can'
 before spawning in themselves.
 
 ## Compile requirements
-- SourceMod 1.7 or newer.
+* SourceMod 1.7 or newer.
+* [Neotokyo include](https://github.com/softashell/sourcemod-nt-include) v1.0 or newer.
+
+## Usage
+Set the cvar `mp_forcecamera 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) enables this cvar automatically when going live.
