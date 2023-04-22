@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.1"
+#define PLUGIN_VERSION "0.3.2"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -249,6 +249,11 @@ public Action Timer_DeathFadeFinished(Handle timer, int userid)
 public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 	int playersNum, bool reliable, bool init)
 {
+	if (!g_hCvar_FadeEnabled.BoolValue)
+	{
+		return Plugin_Continue;
+	}
+
 	if (playersNum != 1)
 	{
 		LogError("OnUserMsg with unexpected num players: %d", playersNum);
@@ -263,8 +268,7 @@ public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 
 	if (msg_id == _usermsgs[UM_FADE])
 	{
-		if (!g_hCvar_FadeEnabled.BoolValue ||
-			IsPlayerAlive(players[0]))
+		if (IsPlayerAlive(players[0]))
 		{
 			return Plugin_Continue;
 		}
