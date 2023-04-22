@@ -24,15 +24,6 @@ vision to block \"ghosting\" for opposing team's loadouts.",
 #define FADE_FLAGS_ADD_FADE (FFADE_OUT | FFADE_STAYOUT)
 #define FADE_FLAGS_CLEAR_FADE (FFADE_PURGE | FFADE_IN)
 
-// Fade user message structure:
-//   short - Fade duration, in ms.
-//   short - Fade hold time, in ms.
-//   short - Fade flags.
-//   byte  - RGBA red.
-//   byte  - RGBA green.
-//   byte  - RGBA blue.
-//   byte  - RGBA alpha.
-
 #define DEATH_FADE_DURATION_SEC 3.840
 
 // UserMsg enumerations.
@@ -192,6 +183,14 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	return Plugin_Stop;
 }
 
+// Fade user message structure:
+//   short - Fade duration, in ms.
+//   short - Fade hold time, in ms.
+//   short - Fade flags.
+//   byte  - RGBA red.
+//   byte  - RGBA green.
+//   byte  - RGBA blue.
+//   byte  - RGBA alpha.
 void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
 {
 	Handle userMsg = StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
