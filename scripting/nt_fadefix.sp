@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.7"
+#define PLUGIN_VERSION "0.3.8"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -429,9 +429,23 @@ public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 		dp_final.WriteCell(msg_id);
 
 		dp_final.WriteCell(num_filtered_players);
+		int num_failed = 0;
 		for (int i = 0; i < num_filtered_players; ++i)
 		{
+			if (!IsClientConnected(filtered_players[i]))
+			{
+				++num_failed;
+				continue;
+			}
 			dp_final.WriteCell(GetClientUserId(filtered_players[i]));
+		}
+		if (num_failed > 0)
+		{
+			num_filtered_players -= num_failed;
+			DataPackPos p = dp_final.Position;
+			dp_final.Reset();
+			dp_final.WriteCell(num_filtered_players, false);
+			dp_final.Position = p;
 		}
 
 		dp.Reset();
