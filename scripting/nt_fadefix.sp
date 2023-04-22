@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.4.0"
+#define PLUGIN_VERSION "0.4.1"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -154,10 +154,11 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	// At this time, there's a visible hitch where some kind of player state change occurs,
 	// and you can actually glimpse past the fade screen during it, so we specifically
 	// apply the fade at that exact moment to prevent it from occurring.
-	// This might not be perfect because of some timer inaccuracy, but it should block
-	// most of the vision well enough.
-	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_FadePlayer, victim_userid,
-		TIMER_FLAG_NO_MAPCHANGE);
+	// Apply thrice within the expected timer inaccuracy range for higher likelihood of
+	// catching the correct timing & minimize unintended vision.
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC - 0.2, Timer_FadePlayer, victim_userid, TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_FadePlayer, victim_userid, TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC + 0.2, Timer_FadePlayer, victim_userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
@@ -505,17 +506,17 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 		return Plugin_Stop;
 	}
 
-	Handle userMsg = StartMessageEx(msg_id, clients, num_clients, USERMSG_RELIABLE);
+	BfWrite userMsg = view_as<BfWrite>(StartMessageEx(msg_id, clients, num_clients, USERMSG_RELIABLE));
 
 	if (msg_id == _usermsgs[UM_FADE])
 	{
-		BfWriteShort(userMsg, data.ReadCell()); // Fade duration, in ms.
-		BfWriteShort(userMsg, data.ReadCell()); // Fade hold time, in ms.
-		BfWriteShort(userMsg, data.ReadCell()); // Fade flags.
-		BfWriteByte(userMsg, data.ReadCell()); // RGBA red.
-		BfWriteByte(userMsg, data.ReadCell()); // RGBA green.
-		BfWriteByte(userMsg, data.ReadCell()); // RGBA blue.
-		BfWriteByte(userMsg, data.ReadCell()); // RGBA alpha.
+		userMsg.WriteShort(data.ReadCell()); // Fade duration, in ms.
+		userMsg.WriteShort(data.ReadCell()); // Fade hold time, in ms.
+		userMsg.WriteShort(data.ReadCell()); // Fade flags.
+		userMsg.WriteByte(data.ReadCell()); // RGBA red.
+		userMsg.WriteByte(data.ReadCell()); // RGBA green.
+		userMsg.WriteByte(data.ReadCell()); // RGBA blue.
+		userMsg.WriteByte(data.ReadCell()); // RGBA alpha.
 	}
 	else if (msg_id == _usermsgs[UM_VGUIMENU])
 	{
@@ -523,10 +524,10 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 		int subcount = 0;
 		do {
 			data.ReadString(buffer, sizeof(buffer));
-			BfWriteString(userMsg, buffer); // name
-			BfWriteByte(userMsg, data.ReadCell()); // show
+			userMsg.WriteString(buffer); // name
+			userMsg.WriteByte(data.ReadCell()); // show
 			subcount = data.ReadCell();
-			BfWriteByte(userMsg, subcount);
+			userMsg.WriteByte(subcount);
 		} while (subcount > 0);
 	}
 	else
@@ -552,15 +553,15 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 // can just send it without relying on a DataPack.
 void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
 {
-	Handle userMsg = StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
-		USERMSG_RELIABLE);
-	BfWriteShort(userMsg, 0); // Fade duration, in ms.
-	BfWriteShort(userMsg, 0); // Fade hold time, in ms.
-	BfWriteShort(userMsg, fade_flags); // Fade flags.
-	BfWriteByte(userMsg, 0); // RGBA red.
-	BfWriteByte(userMsg, 0); // RGBA green.
-	BfWriteByte(userMsg, 0); // RGBA blue.
-	BfWriteByte(userMsg, 255); // RGBA alpha.
+	BfWrite userMsg = view_as<BfWrite>(StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
+		USERMSG_RELIABLE));
+	userMsg.WriteShort(0); // Fade duration, in ms.
+	userMsg.WriteShort(0); // Fade hold time, in ms.
+	userMsg.WriteShort(fade_flags); // Fade flags.
+	userMsg.WriteByte(0); // RGBA red.
+	userMsg.WriteByte(0); // RGBA green.
+	userMsg.WriteByte(0); // RGBA blue.
+	userMsg.WriteByte(255); // RGBA alpha.
 
 	for (int i = 0; i < num_clients; ++i)
 	{
