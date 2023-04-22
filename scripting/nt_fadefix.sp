@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.6"
+#define PLUGIN_VERSION "0.3.7"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -474,10 +474,23 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 	{
 		return Plugin_Stop;
 	}
+
 	int[] clients = new int[num_clients];
+	int failed_clients = 0;
 	for (int i = 0; i < num_clients; ++i)
 	{
-		clients[i] = data.ReadCell();
+		int client = GetClientOfUserId(data.ReadCell());
+		if (client == 0)
+		{
+			++failed_clients;
+			continue;
+		}
+		clients[i] = client;
+	}
+	num_clients -= failed_clients;
+	if (num_clients <= 0)
+	{
+		return Plugin_Stop;
 	}
 
 	Handle userMsg = StartMessageEx(msg_id, clients, num_clients, USERMSG_RELIABLE);
