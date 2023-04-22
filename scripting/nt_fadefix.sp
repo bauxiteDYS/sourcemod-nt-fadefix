@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.0"
+#define PLUGIN_VERSION "0.3.2"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -23,15 +23,6 @@ vision to block \"ghosting\" for opposing team's loadouts.",
 
 #define FADE_FLAGS_ADD_FADE (FFADE_OUT | FFADE_STAYOUT)
 #define FADE_FLAGS_CLEAR_FADE (FFADE_PURGE | FFADE_IN)
-
-// Fade user message structure:
-//   short - Fade duration, in ms.
-//   short - Fade hold time, in ms.
-//   short - Fade flags.
-//   byte  - RGBA red.
-//   byte  - RGBA green.
-//   byte  - RGBA blue.
-//   byte  - RGBA alpha.
 
 #define DEATH_FADE_DURATION_SEC 3.840
 
@@ -192,6 +183,14 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	return Plugin_Stop;
 }
 
+// Fade user message structure:
+//   short - Fade duration, in ms.
+//   short - Fade hold time, in ms.
+//   short - Fade flags.
+//   byte  - RGBA red.
+//   byte  - RGBA green.
+//   byte  - RGBA blue.
+//   byte  - RGBA alpha.
 void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
 {
 	Handle userMsg = StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
@@ -250,6 +249,11 @@ public Action Timer_DeathFadeFinished(Handle timer, int userid)
 public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 	int playersNum, bool reliable, bool init)
 {
+	if (!g_hCvar_FadeEnabled.BoolValue)
+	{
+		return Plugin_Continue;
+	}
+
 	if (playersNum != 1)
 	{
 		LogError("OnUserMsg with unexpected num players: %d", playersNum);
@@ -264,8 +268,7 @@ public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 
 	if (msg_id == _usermsgs[UM_FADE])
 	{
-		if (!g_hCvar_FadeEnabled.BoolValue ||
-			IsPlayerAlive(players[0]))
+		if (IsPlayerAlive(players[0]))
 		{
 			return Plugin_Continue;
 		}
@@ -299,6 +302,18 @@ public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 
 		char buffer[12];
 		msg.ReadString(buffer, sizeof(buffer));
+
+		bool show = (msg.ReadByte() != 0);
+		// If this is a VGUIMenu hide message (not "show"),
+		// always allow it to go through.
+		// This prevents a race condition with out-of-order
+		// network messages leading to the spectator menu
+		// never clearing for a player who just spawned into
+		// a player team.
+		if (!show)
+		{
+			return Plugin_Continue;
+		}
 
 		/* The player VGUIMenu flow actually fires a ton of usermessages,
 		   many of them redundant. Since it seems there's a rare bug with
