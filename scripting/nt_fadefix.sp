@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.2"
+#define PLUGIN_VERSION "0.3.4"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -15,16 +15,19 @@ vision to block \"ghosting\" for opposing team's loadouts.",
 	url = "https://github.com/Rainyan/sourcemod-nt-fadefix"
 };
 
-#define FFADE_IN          0x0001 // Just here so we don't pass 0 into the function
-#define FFADE_OUT         0x0002 // Fade out (not in)
-#define FFADE_MODULATE    0x0004 // Modulate (don't blend)
-#define FFADE_STAYOUT     0x0008 // ignores the duration, stays faded out until new ScreenFade message received
-#define FFADE_PURGE       0x0010 // Purges all other fades, replacing them with this one
+#define FFADE_IN		0x0001 // Just here so we don't pass 0 into the function
+#define FFADE_OUT		0x0002 // Fade out (not in)
+#define FFADE_MODULATE	0x0004 // Modulate (don't blend)
+#define FFADE_STAYOUT	0x0008 // ignores the duration, stays faded out until new ScreenFade message received
+#define FFADE_PURGE		0x0010 // Purges all other fades, replacing them with this one
 
 #define FADE_FLAGS_ADD_FADE (FFADE_OUT | FFADE_STAYOUT)
 #define FADE_FLAGS_CLEAR_FADE (FFADE_PURGE | FFADE_IN)
 
 #define DEATH_FADE_DURATION_SEC 3.840
+
+// Magic value for detecting when we haven't read the data from the related BitBuffer yet
+#define BF_UNINITIALIZED 0xDEADBEEF
 
 // UserMsg enumerations.
 // Anonymous because otherwise SM complains when using these to access array
@@ -38,7 +41,7 @@ enum {
 };
 
 UserMsg _usermsgs[UM_ENUM_COUNT] = { INVALID_MESSAGE_ID, ... };
-char _usermsg_name[UM_ENUM_COUNT][] = {
+char _usermsg_name[UM_ENUM_COUNT][7 + 1] = {
 	"Fade",
 	"ResetHUD",
 	"VGUIMenu",
@@ -46,6 +49,7 @@ char _usermsg_name[UM_ENUM_COUNT][] = {
 
 static bool _unfade_allowed[NEO_MAXPLAYERS + 1];
 static bool _in_death_fade[NEO_MAXPLAYERS + 1];
+static bool _override_usermsg_hook = false;
 
 ConVar g_hCvar_FadeEnabled = null;
 
@@ -183,28 +187,6 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	return Plugin_Stop;
 }
 
-// Fade user message structure:
-//   short - Fade duration, in ms.
-//   short - Fade hold time, in ms.
-//   short - Fade flags.
-//   byte  - RGBA red.
-//   byte  - RGBA green.
-//   byte  - RGBA blue.
-//   byte  - RGBA alpha.
-void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
-{
-	Handle userMsg = StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
-		USERMSG_RELIABLE);
-	BfWriteShort(userMsg, 0);
-	BfWriteShort(userMsg, 0);
-	BfWriteShort(userMsg, fade_flags);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 0);
-	BfWriteByte(userMsg, 255);
-	EndMessage();
-}
-
 void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 {
 	int fade_clients[NEO_MAXPLAYERS];
@@ -249,122 +231,310 @@ public Action Timer_DeathFadeFinished(Handle timer, int userid)
 public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 	int playersNum, bool reliable, bool init)
 {
-	if (!g_hCvar_FadeEnabled.BoolValue)
+	if (!g_hCvar_FadeEnabled.BoolValue || playersNum <= 0)
 	{
 		return Plugin_Continue;
 	}
 
-	if (playersNum != 1)
+	if (msg_id != _usermsgs[UM_FADE] &&
+		msg_id != _usermsgs[UM_VGUIMENU] &&
+		msg_id != _usermsgs[UM_RESETHUD])
 	{
-		LogError("OnUserMsg with unexpected num players: %d", playersNum);
+		LogError("Unexpected usermsg: %d", msg_id);
 		return Plugin_Continue;
 	}
 
-	if (!IsClientInGame(players[0]) ||
-		GetClientTeam(players[0]) <= TEAM_SPECTATOR)
+	if (_override_usermsg_hook)
 	{
+		_override_usermsg_hook = false;
 		return Plugin_Continue;
 	}
 
+	DataPack dp = new DataPack();
 	if (msg_id == _usermsgs[UM_FADE])
 	{
-		if (IsPlayerAlive(players[0]))
-		{
-			return Plugin_Continue;
-		}
-
-		msg.ReadShort(); // duration
-		msg.ReadShort(); // holdtime
-		int fade_flags = msg.ReadShort();
-
-		if (fade_flags & FADE_FLAGS_CLEAR_FADE)
-		{
-			if (_unfade_allowed[players[0]])
-			{
-				_unfade_allowed[players[0]] = false;
-				return Plugin_Continue;
-			}
-		}
-		else if (fade_flags & FADE_FLAGS_ADD_FADE)
-		{
-			return Plugin_Continue;
-		}
-
-		return Plugin_Handled;
+		dp.WriteCell(msg.ReadShort()); // duration
+		dp.WriteCell(msg.ReadShort()); // holdtime
+		dp.WriteCell(msg.ReadShort()); // fade flags
+		dp.WriteCell(msg.ReadByte()); // color R
+		dp.WriteCell(msg.ReadByte()); // color G
+		dp.WriteCell(msg.ReadByte()); // color B
+		dp.WriteCell(msg.ReadByte()); // color A
 	}
-	// Clients are viewing a VGUI menu, such as the weapons loadout menu.
 	else if (msg_id == _usermsgs[UM_VGUIMENU])
 	{
-		if (_unfade_allowed[players[0]])
-		{
-			return Plugin_Continue;
-		}
-
-		char buffer[12];
-		msg.ReadString(buffer, sizeof(buffer));
-
-		bool show = (msg.ReadByte() != 0);
-		// If this is a VGUIMenu hide message (not "show"),
-		// always allow it to go through.
-		// This prevents a race condition with out-of-order
-		// network messages leading to the spectator menu
-		// never clearing for a player who just spawned into
-		// a player team.
-		if (!show)
-		{
-			return Plugin_Continue;
-		}
-
-		/* The player VGUIMenu flow actually fires a ton of usermessages,
-		   many of them redundant. Since it seems there's a rare bug with
-		   the UserMsg timing going out-of-order, we're specifically blocking
-		   any unrelated messages for clients in the spawn flow.
-
-			Event & usermsg flow for (
-				Event_RoundStart, Event_PlayerSpawn,
-				UserMsg_VGUIMenu, UserMsg_ResetHUD
-			):
-
-			Event_RoundStart // <-- new round starts
-				VGUIMenu -> specgui: hide
-				VGUIMenu -> scores: show
-				VGUIMenu -> specgui: show
-				VGUIMenu -> specmenu: show
-				VGUIMenu -> class: show       // <-- Class selection
-				-------------------------
-				VGUIMenu -> loadout: hide
-				VGUIMenu -> specgui: hide
-				VGUIMenu -> specmenu: show
-				VGUIMenu -> specgui: show
-				VGUIMenu -> overview: show
-				VGUIMenu -> scores: show
-				VGUIMenu -> specgui: show
-				VGUIMenu -> specmenu: show
-				VGUIMenu -> loadout: show    // <-- Loadout selection
-				-------------------------
-				VGUIMenu -> loadout_dev: show
-				VGUIMenu -> class: show
-				-------------------------
-			Event_PlayerSpawn // <-- player spawns in the world
-				ResetHUD                    // <-- Closes all HUD menus
-		*/
-		if (StrEqual(buffer, "class") || StrEqual(buffer, "loadout"))
-		{
-			return Plugin_Continue;
-		}
-		// Block any panel other than "class" and "loadout".
-		return Plugin_Handled;
+		char buffer[64];
+		int subcount = 0;
+		do {
+			msg.ReadString(buffer, sizeof(buffer));
+			dp.WriteString(buffer); // show
+			dp.WriteCell(msg.ReadByte()); // show
+			subcount = msg.ReadByte(); // count
+			dp.WriteCell(subcount);
+		} while (subcount > 0);
 	}
-	// Clients are closing their VGUI menus,
-	// this is called after client closes their loadout selection menu.
 	else if (msg_id == _usermsgs[UM_RESETHUD])
 	{
-		//_unfade_allowed[players[0]] = false; // TODO: unnecessary(?)
+		// do nothing
 	}
 	else
 	{
-		LogError("Unexpected usermsg: %d", msg_id);
+		char msg_name[64];
+		if (!GetUserMessageName(msg_id, msg_name, sizeof(msg_name)))
+		{
+			SetFailState("Invalid UserMessage id: %d", msg_id);
+		}
+		else
+		{
+			SetFailState("Unsupported/unimplemented UserMsg: %s", msg_name);
+		}
 	}
 
-	return Plugin_Continue;
+	dp.Reset();
+
+	int fade_flags = BF_UNINITIALIZED;
+	char vguimenu_buffer[sizeof(_usermsg_name[])];
+	int vguimenu_show = BF_UNINITIALIZED;
+
+	int[] filtered_players = new int[playersNum];
+	int num_filtered_players = 0;
+	for (int i = 0; i < playersNum; ++i)
+	{
+		if (!IsClientInGame(players[i]) ||
+			GetClientTeam(players[i]) <= TEAM_SPECTATOR)
+		{
+			filtered_players[num_filtered_players++] = players[i];
+			continue;
+		}
+
+		if (msg_id == _usermsgs[UM_FADE])
+		{
+			if (IsPlayerAlive(players[i]))
+			{
+				filtered_players[num_filtered_players++] = players[i];
+				continue;
+			}
+
+			if (fade_flags == BF_UNINITIALIZED)
+			{
+				dp.ReadCell(); // duration
+				dp.ReadCell(); // holdtime
+				fade_flags = dp.ReadCell();
+				if (fade_flags == BF_UNINITIALIZED)
+				{
+					SetFailState("Failed to read from bf");
+				}
+			}
+
+			if (fade_flags & FADE_FLAGS_CLEAR_FADE)
+			{
+				if (_unfade_allowed[players[i]])
+				{
+					_unfade_allowed[players[i]] = false;
+					filtered_players[num_filtered_players++] = players[i];
+					continue;
+				}
+			}
+			else if (fade_flags & FADE_FLAGS_ADD_FADE)
+			{
+				filtered_players[num_filtered_players++] = players[i];
+				continue;
+			}
+		}
+		else if (msg_id == _usermsgs[UM_VGUIMENU])
+		{
+			if (_unfade_allowed[players[i]])
+			{
+				filtered_players[num_filtered_players++] = players[i];
+				continue;
+			}
+
+			if (vguimenu_show == BF_UNINITIALIZED)
+			{
+				dp.ReadString(vguimenu_buffer, sizeof(vguimenu_buffer));
+				vguimenu_show = dp.ReadCell();
+				if (vguimenu_buffer[0] == '\0')
+				{
+					SetFailState("Failed to read from bf (%s)", vguimenu_buffer);
+				}
+				if (vguimenu_show == BF_UNINITIALIZED)
+				{
+					SetFailState("Failed to read from bf");
+				}
+			}
+
+			bool show = (vguimenu_show != 0);
+			// If this is a VGUIMenu hide message (not "show"),
+			// always allow it to go through.
+			// This prevents a race condition with out-of-order
+			// network messages leading to the spectator menu
+			// never clearing for a player who just spawned into
+			// a player team.
+			if (!show)
+			{
+				filtered_players[num_filtered_players++] = players[i];
+				continue;
+			}
+
+			/* The player VGUIMenu flow actually fires a ton of usermessages,
+			   many of them redundant. Since it seems there's a rare bug with
+			   the UserMsg timing going out-of-order, we're specifically blocking
+			   any unrelated messages for clients in the spawn flow.
+
+				Event & usermsg flow for (
+					Event_RoundStart, Event_PlayerSpawn,
+					UserMsg_VGUIMenu, UserMsg_ResetHUD
+				):
+
+				Event_RoundStart // <-- new round starts
+					VGUIMenu -> specgui: hide
+					VGUIMenu -> scores: show
+					VGUIMenu -> specgui: show
+					VGUIMenu -> specmenu: show
+					VGUIMenu -> class: show	   // <-- Class selection
+					-------------------------
+					VGUIMenu -> loadout: hide
+					VGUIMenu -> specgui: hide
+					VGUIMenu -> specmenu: show
+					VGUIMenu -> specgui: show
+					VGUIMenu -> overview: show
+					VGUIMenu -> scores: show
+					VGUIMenu -> specgui: show
+					VGUIMenu -> specmenu: show
+					VGUIMenu -> loadout: show	// <-- Loadout selection
+					-------------------------
+					VGUIMenu -> loadout_dev: show
+					VGUIMenu -> class: show
+					-------------------------
+				Event_PlayerSpawn // <-- player spawns in the world
+					ResetHUD					// <-- Closes all HUD menus
+			*/
+			// Block any panel other than "class" and "loadout".
+			if (StrEqual(vguimenu_buffer, "class") || StrEqual(vguimenu_buffer, "loadout"))
+			{
+				filtered_players[num_filtered_players++] = players[i];
+				continue;
+			}
+		}
+	}
+
+	if (playersNum != num_filtered_players)
+	{
+		// Have to recreate the UserMessage because we can't modify the clients array in this hook
+		DataPack dp_final;
+		// Using a data timer to delegate this because we can't fire the UserMsg from inside this UserMsg hook
+		CreateDataTimer(0.0, Timer_SendModifiedUserMsg, dp_final, TIMER_FLAG_NO_MAPCHANGE);
+
+		dp_final.WriteCell(msg_id);
+
+		dp_final.WriteCell(num_filtered_players);
+		for (int i = 0; i < num_filtered_players; ++i)
+		{
+			dp_final.WriteCell(GetClientUserId(filtered_players[i]));
+		}
+
+		dp.Reset();
+		if (msg_id == _usermsgs[UM_FADE])
+		{
+			dp_final.WriteCell(dp.ReadCell());
+			dp_final.WriteCell(dp.ReadCell());
+			dp_final.WriteCell(dp.ReadCell());
+			dp_final.WriteCell(dp.ReadCell());
+			dp_final.WriteCell(dp.ReadCell());
+			dp_final.WriteCell(dp.ReadCell());
+			dp_final.WriteCell(dp.ReadCell());
+		}
+		else if (msg_id == _usermsgs[UM_VGUIMENU])
+		{
+			char buffer[64];
+			int subcount = 0;
+			do {
+				dp.ReadString(buffer, sizeof(buffer));
+				dp_final.WriteString(buffer);
+				dp_final.WriteCell(dp.ReadCell());
+				subcount = dp.ReadCell();
+				dp_final.WriteCell(subcount);
+			} while (subcount > 0);
+		}
+	}
+
+	delete dp;
+	return (playersNum == num_filtered_players) ? Plugin_Continue : Plugin_Handled;
+}
+
+public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
+{
+	data.Reset();
+
+	UserMsg msg_id = data.ReadCell();
+
+	int num_clients = data.ReadCell();
+	if (num_clients <= 0)
+	{
+		return Plugin_Stop;
+	}
+	int[] clients = new int[num_clients];
+	for (int i = 0; i < num_clients; ++i)
+	{
+		clients[i] = data.ReadCell();
+	}
+
+	Handle userMsg = StartMessageEx(msg_id, clients, num_clients, USERMSG_RELIABLE);
+
+	if (msg_id == _usermsgs[UM_FADE])
+	{
+		BfWriteShort(userMsg, data.ReadCell()); // Fade duration, in ms.
+		BfWriteShort(userMsg, data.ReadCell()); // Fade hold time, in ms.
+		BfWriteShort(userMsg, data.ReadCell()); // Fade flags.
+		BfWriteByte(userMsg, data.ReadCell()); // RGBA red.
+		BfWriteByte(userMsg, data.ReadCell()); // RGBA green.
+		BfWriteByte(userMsg, data.ReadCell()); // RGBA blue.
+		BfWriteByte(userMsg, data.ReadCell()); // RGBA alpha.
+	}
+	else if (msg_id == _usermsgs[UM_VGUIMENU])
+	{
+		char buffer[64];
+		int subcount = 0;
+		do {
+			data.ReadString(buffer, sizeof(buffer));
+			BfWriteString(userMsg, buffer); // name
+			BfWriteByte(userMsg, data.ReadCell()); // show
+			subcount = data.ReadCell();
+			BfWriteByte(userMsg, subcount);
+		} while (subcount > 0);
+	}
+	else
+	{
+		char msg_name[64];
+		if (!GetUserMessageName(msg_id, msg_name, sizeof(msg_name)))
+		{
+			SetFailState("Invalid UserMessage id: %d", msg_id);
+		}
+		else
+		{
+			SetFailState("Unsupported/unimplemented UserMsg: %s", msg_name);
+		}
+	}
+
+	_override_usermsg_hook = true;
+	EndMessage();
+
+	// This is a datatimer, so we don't need to free the DataPack memory here
+	return Plugin_Stop;
+}
+
+void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
+{
+	Handle userMsg = StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
+		USERMSG_RELIABLE);
+	BfWriteShort(userMsg, 0);
+	BfWriteShort(userMsg, 0);
+	BfWriteShort(userMsg, fade_flags);
+	BfWriteByte(userMsg, 0);
+	BfWriteByte(userMsg, 0);
+	BfWriteByte(userMsg, 0);
+	BfWriteByte(userMsg, 255);
+
+	_override_usermsg_hook = true;
+	EndMessage();
 }
