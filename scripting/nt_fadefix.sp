@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.8"
+#define PLUGIN_VERSION "0.3.9"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -444,6 +444,7 @@ public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 			num_filtered_players -= num_failed;
 			DataPackPos p = dp_final.Position;
 			dp_final.Reset();
+			dp_final.ReadCell(); // msg_id
 			dp_final.WriteCell(num_filtered_players, false);
 			dp_final.Position = p;
 		}
