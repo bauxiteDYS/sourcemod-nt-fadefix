@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.4"
+#define PLUGIN_VERSION "0.3.5"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -41,7 +41,7 @@ enum {
 };
 
 UserMsg _usermsgs[UM_ENUM_COUNT] = { INVALID_MESSAGE_ID, ... };
-char _usermsg_name[UM_ENUM_COUNT][7 + 1] = {
+char _usermsg_name[UM_ENUM_COUNT][8 + 1] = {
 	"Fade",
 	"ResetHUD",
 	"VGUIMenu",
