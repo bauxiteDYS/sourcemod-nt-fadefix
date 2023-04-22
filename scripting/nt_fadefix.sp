@@ -552,6 +552,7 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 // Simpler & faster version of the custom UserMsg function, for cases where we
 // can just send it without relying on a DataPack.
 #if SOURCEMOD_V_MAJOR <= 1 && SOURCEMOD_V_MINOR <= 8
+// Need this signature for SM 1.8 and 1.7
 void SendFadeMessage(int[] clients, int num_clients, int fade_flags)
 #else
 void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
