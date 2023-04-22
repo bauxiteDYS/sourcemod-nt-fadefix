@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.10"
+#define PLUGIN_VERSION "0.4.0"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -24,7 +24,8 @@ vision to block \"ghosting\" for opposing team's loadouts.",
 #define FADE_FLAGS_ADD_FADE (FFADE_OUT | FFADE_STAYOUT)
 #define FADE_FLAGS_CLEAR_FADE (FFADE_PURGE | FFADE_IN)
 
-#define DEATH_FADE_DURATION_SEC 3.840
+#define DEATH_FADE_DURATION_SEC 7.5
+#define DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC 10.0
 
 // Magic value for detecting when we haven't read the data from the related BitBuffer yet
 #define BF_UNINITIALIZED 0xDEADBEEF
@@ -146,7 +147,17 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	}
 
 	_in_death_fade[victim] = true;
-	CreateTimer(DEATH_FADE_DURATION_SEC, Timer_DeathFadeFinished, victim_userid);
+	// Allow the player to see their surroundings during the death fade time.
+	// Also give it some overhead because this timer isn't super accurate.
+	CreateTimer(DEATH_FADE_DURATION_SEC + 0.2, Timer_DeathFadeFinished, victim_userid);
+
+	// At this time, there's a visible hitch where some kind of player state change occurs,
+	// and you can actually glimpse past the fade screen during it, so we specifically
+	// apply the fade at that exact moment to prevent it from occurring.
+	// This might not be perfect because of some timer inaccuracy, but it should block
+	// most of the vision well enough.
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_FadePlayer, victim_userid,
+		TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
