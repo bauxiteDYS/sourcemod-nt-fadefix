@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.5"
+#define PLUGIN_VERSION "0.3.6"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -117,6 +117,7 @@ public void OnMapEnd()
 		KillTimer(g_hTimer_ReFade);
 		g_hTimer_ReFade = INVALID_HANDLE;
 	}
+	_override_usermsg_hook = false;
 }
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
