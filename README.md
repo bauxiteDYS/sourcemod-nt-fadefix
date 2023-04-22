@@ -11,4 +11,4 @@ before spawning in themselves.
 * [Neotokyo include](https://github.com/softashell/sourcemod-nt-include) v1.0 or newer.
 
 ## Usage
-Set the cvar `mp_forcecamera 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) enables this cvar automatically when going live.
+Set the cvar value `mp_forcecamera 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) sets this cvar value automatically when going live.
