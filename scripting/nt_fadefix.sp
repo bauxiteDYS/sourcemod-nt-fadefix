@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.3.0"
+#define PLUGIN_VERSION "0.3.1"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -299,6 +299,18 @@ public Action OnUserMsg(UserMsg msg_id, BfRead msg, const int[] players,
 
 		char buffer[12];
 		msg.ReadString(buffer, sizeof(buffer));
+
+		bool show = (msg.ReadByte() != 0);
+		// If this is a VGUIMenu hide message (not "show"),
+		// always allow it to go through.
+		// This prevents a race condition with out-of-order
+		// network messages leading to the spectator menu
+		// never clearing for a player who just spawned into
+		// a player team.
+		if (!show)
+		{
+			return Plugin_Continue;
+		}
 
 		/* The player VGUIMenu flow actually fires a ton of usermessages,
 		   many of them redundant. Since it seems there's a rare bug with
