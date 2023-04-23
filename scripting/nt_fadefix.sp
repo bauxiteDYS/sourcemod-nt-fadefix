@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.4.2"
+#define PLUGIN_VERSION "0.5.0"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -532,7 +532,7 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 	}
 	else
 	{
-		char msg_name[64];
+		char msg_name[32];
 		if (!GetUserMessageName(msg_id, msg_name, sizeof(msg_name)))
 		{
 			SetFailState("Invalid UserMessage id: %d", msg_id);
