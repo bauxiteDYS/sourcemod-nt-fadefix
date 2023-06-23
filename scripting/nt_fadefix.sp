@@ -318,7 +318,7 @@ public Action OnUserMsg_Fade(UserMsg msg_id, BfRead msg, const int[] players,
 	// Have to recreate the UserMessage because we can't modify the hook's
 	// const clients array here.
 	DataPack dp;
-	// Using a data timer to delegate this because we can't fire the UserMsg
+	// Using a data timer to defer this because we can't fire the UserMsg
 	// from inside this UserMsg hook.
 	CreateDataTimer(0.0, Timer_SendModifiedUserMsg, dp,
 		TIMER_FLAG_NO_MAPCHANGE);
@@ -441,7 +441,7 @@ public Action OnUserMsg_VguiMenu(UserMsg msg_id, BfRead msg, const int[] players
 	// Have to recreate the UserMessage because we can't modify the hook's
 	// const clients array here.
 	DataPack dp;
-	// Using a data timer to delegate this because we can't fire the UserMsg
+	// Using a data timer to defer this because we can't fire the UserMsg
 	// from inside this UserMsg hook.
 	CreateDataTimer(0.0, Timer_SendModifiedUserMsg, dp,
 		TIMER_FLAG_NO_MAPCHANGE);
