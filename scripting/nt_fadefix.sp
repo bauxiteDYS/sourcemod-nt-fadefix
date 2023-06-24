@@ -263,14 +263,18 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	// Also give it some overhead because this timer isn't super accurate.
 	CreateTimer(DEATH_FADE_DURATION_SEC + 0.2, Timer_DeathFadeFinished, victim_userid);
 
-	// At this time, there's a visible hitch where some kind of player state change occurs,
-	// and you can actually glimpse past the fade screen during it, so we specifically
-	// apply the fade at that exact moment to prevent it from occurring.
-	// Apply thrice within the expected timer inaccuracy range for higher likelihood of
-	// catching the correct timing & minimize unintended vision.
-	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC - 0.2, Timer_FadePlayer, victim_userid, TIMER_FLAG_NO_MAPCHANGE);
-	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_FadePlayer, victim_userid, TIMER_FLAG_NO_MAPCHANGE);
-	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC + 0.2, Timer_FadePlayer, victim_userid, TIMER_FLAG_NO_MAPCHANGE);
+	// At this time, there's a visible hitch where some kind of player state
+	// change occurs, and you can actually glimpse past the fade screen during
+	// it, so we specifically apply the fade at that exact moment to prevent it
+	// from occurring. Apply thrice within the expected timer inaccuracy range
+	// for higher likelihood of catching the correct timing & minimize
+	// unintended vision.
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC - 0.2, Timer_FadePlayer,
+		victim_userid, TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_FadePlayer,
+		victim_userid, TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC + 0.2, Timer_FadePlayer,
+		victim_userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
