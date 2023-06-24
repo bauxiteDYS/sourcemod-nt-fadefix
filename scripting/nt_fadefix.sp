@@ -4,7 +4,7 @@
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.5.0"
+#define PLUGIN_VERSION "0.5.1"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -14,6 +14,8 @@ vision to block \"ghosting\" for opposing team's loadouts.",
 	version = PLUGIN_VERSION,
 	url = "https://github.com/Rainyan/sourcemod-nt-fadefix"
 };
+
+//#define DEBUG // Don't enable for release
 
 #define FFADE_IN		0x0001 // Just here so we don't pass 0 into the function
 #define FFADE_OUT		0x0002 // Fade out (not in)
@@ -43,14 +45,19 @@ enum {
 };
 
 UserMsg _usermsgs[UM_ENUM_COUNT] = { INVALID_MESSAGE_ID, ... };
-char _usermsg_name[UM_ENUM_COUNT][8 + 1] = {
+char _usermsg_name[UM_ENUM_COUNT][] = {
 	"Fade",
 	"VGUIMenu",
 };
 
-static bool _unfade_allowed[NEO_MAXPLAYERS + 1];
+static bool _unfade_allowed[NEO_MAXPLAYERS + 1] = { true, ... };
 static bool _in_death_fade[NEO_MAXPLAYERS + 1];
 static bool _override_usermsg_hook[NEO_MAXPLAYERS + 1];
+#if defined(DEBUG)
+static bool _debug_fademe[NEO_MAXPLAYERS + 1];
+#endif
+
+static int _alttab_ticks_threshold;
 
 ConVar g_hCvar_FadeEnabled = null;
 
@@ -73,31 +80,137 @@ public void OnPluginStart()
 		"NT Competitive Fade Fix plugin version.", FCVAR_DONTRECORD);
 
 	g_hCvar_FadeEnabled = FindConVar("mp_forcecamera");
-	if (g_hCvar_FadeEnabled == null) {
+	if (g_hCvar_FadeEnabled == null)
+	{
 		SetFailState("Failed to find cvar for g_hCvar_FadeEnabled");
 	}
 
-	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_Pre)) {
+	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_Pre))
+	{
 		SetFailState("Failed to hook event game_round_start");
 	}
-	if (!HookEventEx("player_spawn", Event_PlayerSpawn, EventHookMode_Post)) {
+	if (!HookEventEx("player_spawn", Event_PlayerSpawn, EventHookMode_Post))
+	{
 		SetFailState("Failed to hook event player_spawn");
 	}
-	if (!HookEventEx("player_death", Event_PlayerDeath, EventHookMode_Post)) {
+	if (!HookEventEx("player_death", Event_PlayerDeath, EventHookMode_Post))
+	{
 		SetFailState("Failed to hook event player_death");
 	}
-	if (!HookEventEx("player_team", Event_PlayerTeam, EventHookMode_Post)) {
+	if (!HookEventEx("player_team", Event_PlayerTeam, EventHookMode_Post))
+	{
 		SetFailState("Failed to hook event player_team");
 	}
 
 	g_hTimer_ReFade = CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
+
+	int default_tickrate = 66;
+	float tickrate = float(RoundToNearest(1.0 / GetTickInterval()));
+	int ticks_threshold = 20;
+	_alttab_ticks_threshold = RoundToCeil(tickrate / default_tickrate * ticks_threshold);
+	if (_alttab_ticks_threshold < 1)
+	{
+		SetFailState("Indeterminate alt-tab predicted ticks threshold %d",
+			_alttab_ticks_threshold);
+	}
+
+#if defined(DEBUG)
+	RegAdminCmd("sm_fade_debug", Cmd_FadeMe, ADMFLAG_GENERIC);
+#endif
 }
+
+#if defined(DEBUG)
+public Action Cmd_FadeMe(int client, int args)
+{
+	if (client == 0)
+	{
+		ReplyToCommand(client, "[FADE] This command cannot be executed by the server");
+		return Plugin_Handled;
+	}
+
+	_debug_fademe[client] = !_debug_fademe[client];
+
+	ReplyToCommand(client, "[DEBUG] Forcing alt-tab refade for %N to: %s",
+		client,
+		_debug_fademe[client] ? "ON" : "OFF"
+	);
+
+	if (!_debug_fademe[client] && IsPlayerAlive(client))
+	{
+		SendFadeMessageOne(client, FADE_FLAGS_CLEAR_FADE);
+	}
+
+	return Plugin_Handled;
+}
+#endif
 
 public void OnClientDisconnect(int client)
 {
-	_unfade_allowed[client] = false;
+	_unfade_allowed[client] = true;
 	_in_death_fade[client] = false;
 	_override_usermsg_hook[client] = false;
+}
+
+any Abs(any a)
+{
+	return a < 0 ? -a : a;
+}
+
+public void OnPlayerRunCmdPost(int client, int buttons, int impulse,
+	const float vel[3], const float angles[3], int weapon, int subtype,
+	int cmdnum, int tickcount, int seed, const int mouse[2])
+{
+#if defined(DEBUG)
+	if (_debug_fademe[client])
+	{
+		if (Abs(GetGameTickCount() - tickcount) > _alttab_ticks_threshold)
+		{
+			SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
+			PrintToChat(client, "[DEBUG] Predicted tickcount delta over threshold (%d > %d); forcing re-fade",
+				Abs(GetGameTickCount() - tickcount),
+				_alttab_ticks_threshold
+			);
+		}
+		return;
+	}
+#endif
+
+#if defined(DEBUG) // filter bots so we get reasonable debug output
+	if (IsFakeClient(client))
+	{
+		return;
+	}
+#endif
+
+	if (_unfade_allowed[client])
+	{
+		return;
+	}
+
+	if (_in_death_fade[client])
+	{
+		return;
+	}
+
+	if (!g_hCvar_FadeEnabled.BoolValue)
+	{
+		return;
+	}
+
+	if (IsPlayerAlive(client) || IsFakeClient(client))
+	{
+		return;
+	}
+
+	if (GetClientTeam(client) <= TEAM_SPECTATOR)
+	{
+		return;
+	}
+
+	if (Abs(GetGameTickCount() - tickcount) > _alttab_ticks_threshold)
+	{
+		SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
+	}
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
@@ -108,7 +221,8 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 		g_hTimer_ReFade = CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
 	}
 
-	if (g_hCvar_FadeEnabled.BoolValue) {
+	if (g_hCvar_FadeEnabled.BoolValue)
+	{
 		FadeAllDeadPlayers(false);
 	}
 }
@@ -133,19 +247,19 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 
 	_unfade_allowed[client] = true;
 
-	int clients[1];
-	clients[0] = client;
-	SendFadeMessage(clients, 1, FADE_FLAGS_CLEAR_FADE);
+	SendFadeMessageOne(client, FADE_FLAGS_CLEAR_FADE);
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int victim_userid = event.GetInt("userid");
 	int victim = GetClientOfUserId(victim_userid);
-	if (victim == 0 || IsFakeClient(victim)) {
+	if (victim == 0 || IsFakeClient(victim))
+	{
 		return;
 	}
 
+	_unfade_allowed[victim] = false;
 	_in_death_fade[victim] = true;
 	// Allow the player to see their surroundings during the death fade time.
 	// Also give it some overhead because this timer isn't super accurate.
@@ -163,27 +277,31 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!g_hCvar_FadeEnabled.BoolValue) {
+	if (!g_hCvar_FadeEnabled.BoolValue)
+	{
 		return;
 	}
 
 	int userid = event.GetInt("userid");
 	int client = GetClientOfUserId(userid);
-	if (client == 0 || IsFakeClient(client)) {
+	if (client == 0 || IsFakeClient(client))
+	{
 		return;
 	}
 
-	int new_team = event.GetInt("team");
-	if (new_team <= TEAM_SPECTATOR) {
-		return;
-	}
-
-	_unfade_allowed[client] = false;
 	_in_death_fade[client] = false;
 
-	// Need to wait for the team change to have gone through to ensure the
-	// fade will work here.
-	CreateTimer(0.1, Timer_FadePlayer, userid, TIMER_FLAG_NO_MAPCHANGE);
+	if (event.GetInt("team") <= TEAM_SPECTATOR)
+	{
+		_unfade_allowed[client] = true;
+	}
+	else
+	{
+		_unfade_allowed[client] = false;
+		// Need to wait for the team change to have gone through to ensure the
+		// fade will work here.
+		CreateTimer(0.1, Timer_FadePlayer, userid, TIMER_FLAG_NO_MAPCHANGE);
+	}
 }
 
 public Action Timer_FadePlayer(Handle timer, int userid)
@@ -194,9 +312,7 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	if (client != 0 && !IsPlayerAlive(client) &&
 		GetClientTeam(client) > TEAM_SPECTATOR)
 	{
-		int clients[1];
-		clients[0] = client;
-		SendFadeMessage(clients, 1, FADE_FLAGS_ADD_FADE);
+		SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
 	}
 	return Plugin_Stop;
 }
@@ -204,8 +320,9 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 {
 	int fade_clients[NEO_MAXPLAYERS];
-	int num_fade_clients;
-	for (int client = 1; client <= MaxClients; ++client) {
+	int num_fade_clients = 0;
+	for (int client = 1; client <= MaxClients; ++client)
+	{
 		if (!IsClientInGame(client) || IsFakeClient(client) ||
 			GetClientTeam(client) <= TEAM_SPECTATOR ||
 			IsPlayerAlive(client))
@@ -218,7 +335,8 @@ void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 		fade_clients[num_fade_clients++] = client;
 	}
 
-	if (num_fade_clients == 0) {
+	if (num_fade_clients == 0)
+	{
 		return;
 	}
 
@@ -227,7 +345,8 @@ void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 
 public Action Timer_ReFade(Handle timer)
 {
-	if (g_hCvar_FadeEnabled.BoolValue) {
+	if (g_hCvar_FadeEnabled.BoolValue)
+	{
 		FadeAllDeadPlayers(true);
 	}
 	return Plugin_Continue;
@@ -235,10 +354,7 @@ public Action Timer_ReFade(Handle timer)
 
 public Action Timer_DeathFadeFinished(Handle timer, int userid)
 {
-	int client = GetClientOfUserId(userid);
-	if (client != 0) {
-		_in_death_fade[client] = false;
-	}
+	_in_death_fade[GetClientOfUserId(userid)] = false;
 	return Plugin_Stop;
 }
 
@@ -558,15 +674,9 @@ void SendFadeMessage(int[] clients, int num_clients, int fade_flags)
 void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
 #endif
 {
-	BfWrite userMsg = view_as<BfWrite>(StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
-		USERMSG_RELIABLE));
-	userMsg.WriteShort(0); // Fade duration, in ms.
-	userMsg.WriteShort(0); // Fade hold time, in ms.
-	userMsg.WriteShort(fade_flags); // Fade flags.
-	userMsg.WriteByte(0); // RGBA red.
-	userMsg.WriteByte(0); // RGBA green.
-	userMsg.WriteByte(0); // RGBA blue.
-	userMsg.WriteByte(255); // RGBA alpha.
+	Handle msg = StartMessageEx(_usermsgs[UM_FADE], clients, num_clients,
+		USERMSG_RELIABLE);
+	InitFadeMessage(msg, fade_flags);
 
 	for (int i = 0; i < num_clients; ++i)
 	{
@@ -574,4 +684,29 @@ void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
 	}
 
 	EndMessage();
+}
+
+void SendFadeMessageOne(int client, int fade_flags)
+{
+	int clients[1];
+	clients[0] = client;
+	Handle msg = StartMessageEx(_usermsgs[UM_FADE], clients, 1,
+		USERMSG_RELIABLE);
+	InitFadeMessage(msg, fade_flags);
+
+	_override_usermsg_hook[client] = true;
+
+	EndMessage();
+}
+
+void InitFadeMessage(Handle message, int fade_flags)
+{
+	BfWrite bfw = UserMessageToBfWrite(message);
+	bfw.WriteShort(0); // Fade duration, in ms.
+	bfw.WriteShort(0); // Fade hold time, in ms.
+	bfw.WriteShort(fade_flags); // Fade flags.
+	bfw.WriteByte(0); // RGBA red.
+	bfw.WriteByte(0); // RGBA green.
+	bfw.WriteByte(0); // RGBA blue.
+	bfw.WriteByte(255); // RGBA alpha.
 }
