@@ -1,10 +1,10 @@
-#pragma semicolon 1
-
 #include <sourcemod>
 
 #include <neotokyo>
 
-#define PLUGIN_VERSION "0.5.1"
+#pragma semicolon 1
+
+#define PLUGIN_VERSION "0.5.2"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -19,7 +19,6 @@ vision to block \"ghosting\" for opposing team's loadouts.",
 
 #define FFADE_IN		0x0001 // Just here so we don't pass 0 into the function
 #define FFADE_OUT		0x0002 // Fade out (not in)
-#define FFADE_MODULATE	0x0004 // Modulate (don't blend)
 #define FFADE_STAYOUT	0x0008 // ignores the duration, stays faded out until new ScreenFade message received
 #define FFADE_PURGE		0x0010 // Purges all other fades, replacing them with this one
 
@@ -28,9 +27,6 @@ vision to block \"ghosting\" for opposing team's loadouts.",
 
 #define DEATH_FADE_DURATION_SEC 7.5
 #define DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC 10.0
-
-// Magic value for detecting when we haven't read the data from the related BitBuffer yet
-#define BF_UNINITIALIZED 0xDEADBEEF
 
 #define MAX_FILTERED_VGUI_PANEL_SIZE 7+1 // strlen("loadout") + 1
 
@@ -124,7 +120,8 @@ public Action Cmd_FadeMe(int client, int args)
 {
 	if (client == 0)
 	{
-		ReplyToCommand(client, "[FADE] This command cannot be executed by the server");
+		ReplyToCommand(client, "[FADE] This command cannot be executed by \
+the server");
 		return Plugin_Handled;
 	}
 
@@ -166,7 +163,8 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse,
 		if (Abs(GetGameTickCount() - tickcount) > _alttab_ticks_threshold)
 		{
 			SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
-			PrintToChat(client, "[DEBUG] Predicted tickcount delta over threshold (%d > %d); forcing re-fade",
+			PrintToChat(client, "[DEBUG] Predicted tickcount delta over \
+threshold (%d > %d); forcing re-fade",
 				Abs(GetGameTickCount() - tickcount),
 				_alttab_ticks_threshold
 			);
@@ -329,7 +327,8 @@ void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 		{
 			continue;
 		}
-		if (ignore_clients_in_death_fade && _in_death_fade[client]) {
+		if (ignore_clients_in_death_fade && _in_death_fade[client])
+		{
 			continue;
 		}
 		fade_clients[num_fade_clients++] = client;
@@ -461,8 +460,8 @@ public Action OnUserMsg_Fade(UserMsg msg_id, BfRead msg, const int[] players,
 // UserMsg hook for the "VGUIMenu" message.
 // NOTE!! You *cannot* use any code that fires a UserMessage inside
 // this hook, such as the PrintToChat... functions.
-public Action OnUserMsg_VguiMenu(UserMsg msg_id, BfRead msg, const int[] players,
-	int playersNum, bool reliable, bool init)
+public Action OnUserMsg_VguiMenu(UserMsg msg_id, BfRead msg,
+	const int[] players, int playersNum, bool reliable, bool init)
 {
 	if (!g_hCvar_FadeEnabled.BoolValue || playersNum <= 0)
 	{
@@ -622,17 +621,19 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 		return Plugin_Stop;
 	}
 
-	BfWrite userMsg = view_as<BfWrite>(StartMessageEx(msg_id, clients, num_clients, USERMSG_RELIABLE));
+	BfWrite bfw_msg = UserMessageToBfWrite(
+		StartMessageEx(msg_id, clients, num_clients, USERMSG_RELIABLE)
+	);
 
 	if (msg_id == _usermsgs[UM_FADE])
 	{
-		userMsg.WriteShort(data.ReadCell()); // Fade duration, in ms.
-		userMsg.WriteShort(data.ReadCell()); // Fade hold time, in ms.
-		userMsg.WriteShort(data.ReadCell()); // Fade flags.
-		userMsg.WriteByte(data.ReadCell()); // RGBA red.
-		userMsg.WriteByte(data.ReadCell()); // RGBA green.
-		userMsg.WriteByte(data.ReadCell()); // RGBA blue.
-		userMsg.WriteByte(data.ReadCell()); // RGBA alpha.
+		bfw_msg.WriteShort(data.ReadCell()); // Fade duration, in ms.
+		bfw_msg.WriteShort(data.ReadCell()); // Fade hold time, in ms.
+		bfw_msg.WriteShort(data.ReadCell()); // Fade flags.
+		bfw_msg.WriteByte(data.ReadCell()); // RGBA red.
+		bfw_msg.WriteByte(data.ReadCell()); // RGBA green.
+		bfw_msg.WriteByte(data.ReadCell()); // RGBA blue.
+		bfw_msg.WriteByte(data.ReadCell()); // RGBA alpha.
 	}
 	else if (msg_id == _usermsgs[UM_VGUIMENU])
 	{
@@ -640,10 +641,10 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 		int subcount = 0;
 		do {
 			data.ReadString(buffer, sizeof(buffer));
-			userMsg.WriteString(buffer); // name
-			userMsg.WriteByte(data.ReadCell()); // show
+			bfw_msg.WriteString(buffer); // name
+			bfw_msg.WriteByte(data.ReadCell()); // show
 			subcount = data.ReadCell();
-			userMsg.WriteByte(subcount);
+			bfw_msg.WriteByte(subcount);
 		} while (subcount > 0);
 	}
 	else
@@ -686,6 +687,7 @@ void SendFadeMessage(const int[] clients, int num_clients, int fade_flags)
 	EndMessage();
 }
 
+// Version of SendFadeMessage for just one client.
 void SendFadeMessageOne(int client, int fade_flags)
 {
 	int clients[1];
