@@ -16,4 +16,4 @@ before spawning in themselves.
   * Older versions of the nt_competitive plugin use their own built-in (inferior) fade system, which may interfere with this plugin
 
 ## Usage
-Set the cvar value `mp_forcecamera 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) sets this cvar value automatically when going live.
+Set the cvar value `mp_forcecamera 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) sets this cvar value automatically when going live, so you don't need to do anything if using these plugins in tandem.
