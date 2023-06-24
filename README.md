@@ -11,8 +11,9 @@ before spawning in themselves.
 * [Neotokyo include](https://github.com/softashell/sourcemod-nt-include) v1.0 or newer.
 
 ## Server requirements
-* Recommended nt_competitive version: 0.5.0 or newer
-  * Old versions of the nt_competitive use their own built-in (inferior) fade system, which may interfere with this plugin
+#### If using nt_competitive plugin
+* Recommended nt_competitive plugin version: 0.5.0 or newer
+  * Older versions of the nt_competitive plugin use their own built-in (inferior) fade system, which may interfere with this plugin
 
 ## Usage
 Set the cvar value `mp_forcecamera 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) sets this cvar value automatically when going live.
