@@ -4,7 +4,7 @@
 
 #pragma semicolon 1
 
-#define PLUGIN_VERSION "0.5.2"
+#define PLUGIN_VERSION "0.5.3"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -78,8 +78,9 @@ public void OnPluginStart()
 	g_hCvar_FadeEnabled = FindConVar("mp_forcecamera");
 	if (g_hCvar_FadeEnabled == null)
 	{
-		SetFailState("Failed to find cvar for g_hCvar_FadeEnabled");
+		SetFailState("Failed to find cvar mp_forcecamera");
 	}
+	g_hCvar_FadeEnabled.AddChangeHook(CvarChanged_ForceCamera);
 
 	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_Pre))
 	{
@@ -113,6 +114,25 @@ public void OnPluginStart()
 #if defined(DEBUG)
 	RegAdminCmd("sm_fade_debug", Cmd_FadeMe, ADMFLAG_GENERIC);
 #endif
+}
+
+public void CvarChanged_ForceCamera(ConVar convar, const char[] oldValue,
+	const char[] newValue)
+{
+	if (StringToInt(newValue) == 0)
+	{
+		int clients[NEO_MAXPLAYERS];
+		int n_clients;
+		for (int client = 1; client <= MaxClients; ++client)
+		{
+			if (!IsClientInGame(client) || IsFakeClient(client))
+			{
+				continue;
+			}
+			clients[n_clients++] = client;
+		}
+		SendFadeMessage(clients, n_clients, FADE_FLAGS_CLEAR_FADE);
+	}
 }
 
 #if defined(DEBUG)
@@ -250,6 +270,11 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!g_hCvar_FadeEnabled.BoolValue)
+	{
+		return;
+	}
+
 	int victim_userid = event.GetInt("userid");
 	int victim = GetClientOfUserId(victim_userid);
 	if (victim == 0 || IsFakeClient(victim))
