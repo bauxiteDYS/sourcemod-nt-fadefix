@@ -78,7 +78,7 @@ public void OnPluginStart()
 	g_hCvar_FadeEnabled = FindConVar("mp_forcecamera");
 	if (g_hCvar_FadeEnabled == null)
 	{
-		SetFailState("Failed to find cvar for g_hCvar_FadeEnabled");
+		SetFailState("Failed to find cvar mp_forcecamera");
 	}
 
 	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_Pre))
