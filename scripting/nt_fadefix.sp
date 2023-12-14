@@ -4,7 +4,7 @@
 
 #pragma semicolon 1
 
-#define PLUGIN_VERSION "0.5.4"
+#define PLUGIN_VERSION "0.5.6"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -53,11 +53,7 @@ static bool _override_usermsg_hook[NEO_MAXPLAYERS + 1];
 static bool _debug_fademe[NEO_MAXPLAYERS + 1];
 #endif
 
-static int _alttab_ticks_threshold;
-
 ConVar g_hCvar_FadeEnabled = null;
-
-Handle g_hTimer_ReFade = INVALID_HANDLE;
 
 public void OnPluginStart()
 {
@@ -71,6 +67,14 @@ public void OnPluginStart()
 	}
 	HookUserMessage(_usermsgs[UM_FADE], OnUserMsg_Fade, true);
 	HookUserMessage(_usermsgs[UM_VGUIMENU], OnUserMsg_VguiMenu, true);
+
+	char resetmsg[] = "ResetHUD";
+	UserMsg msg_resethud = GetUserMessageId(resetmsg);
+	if (msg_resethud == INVALID_MESSAGE_ID)
+	{
+		SetFailState("Could not find usermsg \"%s\"", resetmsg);
+	}
+	HookUserMessage(msg_resethud, OnUserMsg_ResetHud, true);
 
 	CreateConVar("sm_nt_fadefix_version", PLUGIN_VERSION,
 		"NT Competitive Fade Fix plugin version.", FCVAR_DONTRECORD);
@@ -99,17 +103,7 @@ public void OnPluginStart()
 		SetFailState("Failed to hook event player_team");
 	}
 
-	g_hTimer_ReFade = CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
-
-	int default_tickrate = 66;
-	float tickrate = float(RoundToNearest(1.0 / GetTickInterval()));
-	int ticks_threshold = 20;
-	_alttab_ticks_threshold = RoundToCeil(tickrate / default_tickrate * ticks_threshold);
-	if (_alttab_ticks_threshold < 1)
-	{
-		SetFailState("Indeterminate alt-tab predicted ticks threshold %d",
-			_alttab_ticks_threshold);
-	}
+	CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
 
 #if defined(DEBUG)
 	RegAdminCmd("sm_fade_debug", Cmd_FadeMe, ADMFLAG_GENERIC);
@@ -161,96 +155,18 @@ the server");
 }
 #endif
 
-public void OnClientDisconnect(int client)
+public void OnClientDisconnect_Post(int client)
 {
 	_unfade_allowed[client] = true;
 	_in_death_fade[client] = false;
 	_override_usermsg_hook[client] = false;
 }
 
-any Abs(any a)
-{
-	return a < 0 ? -a : a;
-}
-
-public void OnPlayerRunCmdPost(int client, int buttons, int impulse,
-	const float vel[3], const float angles[3], int weapon, int subtype,
-	int cmdnum, int tickcount, int seed, const int mouse[2])
-{
-#if defined(DEBUG)
-	if (_debug_fademe[client])
-	{
-		if (Abs(GetGameTickCount() - tickcount) > _alttab_ticks_threshold)
-		{
-			SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
-			PrintToChat(client, "[DEBUG] Predicted tickcount delta over \
-threshold (%d > %d); forcing re-fade",
-				Abs(GetGameTickCount() - tickcount),
-				_alttab_ticks_threshold
-			);
-		}
-		return;
-	}
-#endif
-
-#if defined(DEBUG) // filter bots so we get reasonable debug output
-	if (IsFakeClient(client))
-	{
-		return;
-	}
-#endif
-
-	if (_unfade_allowed[client])
-	{
-		return;
-	}
-
-	if (_in_death_fade[client])
-	{
-		return;
-	}
-
-	if (!g_hCvar_FadeEnabled.BoolValue)
-	{
-		return;
-	}
-
-	if (IsPlayerAlive(client) || IsFakeClient(client))
-	{
-		return;
-	}
-
-	if (GetClientTeam(client) <= TEAM_SPECTATOR)
-	{
-		return;
-	}
-
-	if (Abs(GetGameTickCount() - tickcount) > _alttab_ticks_threshold)
-	{
-		SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
-	}
-}
-
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
-	if (g_hTimer_ReFade != INVALID_HANDLE)
-	{
-		KillTimer(g_hTimer_ReFade);
-		g_hTimer_ReFade = CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
-	}
-
 	if (g_hCvar_FadeEnabled.BoolValue)
 	{
 		FadeAllDeadPlayers(false);
-	}
-}
-
-public void OnMapEnd()
-{
-	if (g_hTimer_ReFade != INVALID_HANDLE)
-	{
-		KillTimer(g_hTimer_ReFade);
-		g_hTimer_ReFade = INVALID_HANDLE;
 	}
 }
 
@@ -336,8 +252,8 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 	int client = GetClientOfUserId(userid);
 	// Checking for team again in case the player got rapidly moved to
 	// spectator right after joining a playing team.
-	if (client != 0 && !IsPlayerAlive(client) &&
-		GetClientTeam(client) > TEAM_SPECTATOR)
+	if (client != 0 && IsClientInGame(client) &&
+		!IsPlayerAlive(client) && GetClientTeam(client) > TEAM_SPECTATOR)
 	{
 		SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
 	}
@@ -613,6 +529,26 @@ public Action OnUserMsg_VguiMenu(UserMsg msg_id, BfRead msg,
 		} while (subcount > 0);
 	}
 
+	return Plugin_Handled;
+}
+
+public Action OnUserMsg_ResetHud(UserMsg msg_id, BfRead msg,
+	const int[] players, int playersNum, bool reliable, bool init)
+{
+	if (playersNum != 1)
+	{
+		return Plugin_Continue;
+	}
+
+	int client = players[0];
+	if (!IsClientInGame(client) || IsFakeClient(client) ||
+		IsPlayerAlive(client) || GetClientTeam(client) <= TEAM_SPECTATOR)
+	{
+		return Plugin_Continue;
+	}
+
+	CreateTimer(0.333, Timer_FadePlayer, GetClientUserId(client),
+		TIMER_FLAG_NO_MAPCHANGE);
 	return Plugin_Handled;
 }
 
