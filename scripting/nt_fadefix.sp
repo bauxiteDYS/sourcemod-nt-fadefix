@@ -4,7 +4,7 @@
 
 #pragma semicolon 1
 
-#define PLUGIN_VERSION "0.5.6"
+#define PLUGIN_VERSION "0.5.7"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -173,7 +173,7 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (client == 0 || IsFakeClient(client) ||
+	if (client == 0 || !IsClientInGame(client) || IsFakeClient(client) ||
 		GetClientTeam(client) <= TEAM_SPECTATOR)
 	{
 		return;
@@ -193,7 +193,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 	int victim_userid = event.GetInt("userid");
 	int victim = GetClientOfUserId(victim_userid);
-	if (victim == 0 || IsFakeClient(victim))
+	if (victim == 0 || !IsClientInGame(victim) || IsFakeClient(victim))
 	{
 		return;
 	}
@@ -227,7 +227,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 
 	int userid = event.GetInt("userid");
 	int client = GetClientOfUserId(userid);
-	if (client == 0 || IsFakeClient(client))
+	if (client == 0 || !IsClientInGame(client) || IsFakeClient(client))
 	{
 		return;
 	}
@@ -572,7 +572,7 @@ public Action Timer_SendModifiedUserMsg(Handle timer, DataPack data)
 	for (int i = 0; i < num_clients; ++i)
 	{
 		int client = GetClientOfUserId(data.ReadCell());
-		if (client == 0)
+		if (client == 0 || !IsClientInGame(client))
 		{
 			++failed_clients;
 			continue;
