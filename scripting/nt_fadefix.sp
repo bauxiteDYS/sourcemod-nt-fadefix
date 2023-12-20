@@ -481,8 +481,8 @@ public Action OnUserMsg_VguiMenu(UserMsg msg_id, BfRead msg,
 				ResetHUD					// <-- Closes all HUD menus
 		*/
 
-		// Block showing any panel other than "class", "loadout" and "specgui".
-		if (StrEqual(panel_name, "class") || StrEqual(panel_name, "loadout") || StrEqual(panel_name, "specgui"))
+		// Block showing any panel other than "class", "loadout", "specgui" and "info" (the MOTD Panel).
+		if (StrEqual(panel_name, "class") || StrEqual(panel_name, "loadout") || StrEqual(panel_name, "specgui") || StrEqual(panel_name, "info"))
 		{
 			allowed_players[num_allowed_players++] = players[i];
 			continue;
