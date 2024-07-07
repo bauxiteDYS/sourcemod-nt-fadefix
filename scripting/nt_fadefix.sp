@@ -120,7 +120,7 @@ public void OnPluginStart()
 
 public Action OnSpecMode(int client, const char[] command, int argc)
 {
-	if (!g_hCvar_FadeEnabled.BoolValue)
+	if (!g_hCvar_FadeEnabled.BoolValue || g_hCvar_CompFadeEnabled.BoolValue)
 	{
 		return Plugin_Continue;
 	}
@@ -144,7 +144,7 @@ public Action OnSpecMode(int client, const char[] command, int argc)
 
 public Action OnSpecPlayer(int client, const char[] command, int argc)
 {
-	if (!g_hCvar_FadeEnabled.BoolValue)
+	if (!g_hCvar_FadeEnabled.BoolValue || g_hCvar_CompFadeEnabled.BoolValue)
 	{
 		return Plugin_Continue;
 	}
