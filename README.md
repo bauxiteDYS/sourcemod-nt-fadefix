@@ -16,4 +16,6 @@ before spawning in themselves.
   * Older versions of the nt_competitive plugin use their own built-in (inferior) fade system, which may interfere with this plugin
 
 ## Usage
-Set the cvar value `mp_forcecamera 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) sets this cvar value automatically when going live, so you don't need to do anything if using these plugins in tandem.
+Set the cvar value `mp_forcecamera 1` and `sm_competitive_fade_enabled 1` to enable this plugin. The [nt_competitive plugin](https://github.com/Rainyan/sourcemod-nt-competitive) sets this cvar value automatically when going live, so you don't need to do anything if using these plugins in tandem.  
+
+Set the cvar value `mp_forcecamera 1` and `sm_competitive_fade_enabled 0` to enable players to spectate their teammates only in 3rd person, and not be able to use freecam etc. Useful for semi-competitive gameplay like PUGs so players aren't forced to stare at a black screen.
