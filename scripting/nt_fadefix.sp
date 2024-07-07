@@ -88,7 +88,7 @@ public void OnPluginStart()
 	}
 	g_hCvar_FadeEnabled.AddChangeHook(CvarChanged_ForceCamera);
 
-	g_hCvar_CompFadeEnabled = CreateConVar("sm_competitive_fade_enabled","1","Should fade to black be forced on death. Can be useful to disable on pugs etc.", _, true, 0.0, true, 1.0);
+	g_hCvar_CompFadeEnabled = CreateConVar("sm_team_only_spectate","1","Should fade to black be forced on death. Can be useful to disable on pugs etc.", _, true, 0.0, true, 1.0);
 	g_hCvar_CompFadeEnabled.AddChangeHook(CvarChanged_ForceCamera);
 	
 	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_Pre))
