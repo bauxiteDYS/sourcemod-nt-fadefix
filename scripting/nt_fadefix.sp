@@ -5,7 +5,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "0.5.8"
+#define PLUGIN_VERSION "0.6.0"
 
 public Plugin myinfo = {
 	name = "NT Competitive Fade Fix",
@@ -55,6 +55,7 @@ static bool _debug_fademe[NEO_MAXPLAYERS + 1];
 #endif
 
 ConVar g_hCvar_FadeEnabled = null;
+ConVar g_hCvar_CompFadeEnabled = null;
 
 public void OnPluginStart()
 {
@@ -87,6 +88,9 @@ public void OnPluginStart()
 	}
 	g_hCvar_FadeEnabled.AddChangeHook(CvarChanged_ForceCamera);
 
+	g_hCvar_CompFadeEnabled = CreateConVar("sm_competitive_fade_enabled","1","Should fade to black be forced on death. Can be useful to disable on pugs etc.", _, true, 0.0, true, 1.0);
+	g_hCvar_CompFadeEnabled.AddChangeHook(CvarChanged_ForceCamera);
+	
 	if (!HookEventEx("game_round_start", Event_RoundStart, EventHookMode_Pre))
 	{
 		SetFailState("Failed to hook event game_round_start");
@@ -103,12 +107,54 @@ public void OnPluginStart()
 	{
 		SetFailState("Failed to hook event player_team");
 	}
-
+	
+	AddCommandListener(OnSpecMode, "spec_mode");
+	AddCommandListener(OnSpecPlayer, "spec_player");
+	
 	CreateTimer(1.0, Timer_ReFade, _, TIMER_REPEAT);
 
 #if defined(DEBUG)
 	RegAdminCmd("sm_fade_debug", Cmd_FadeMe, ADMFLAG_GENERIC);
 #endif
+}
+
+public Action OnSpecMode(int client, const char[] command, int argc)
+{
+	if (!g_hCvar_FadeEnabled.BoolValue)
+	{
+		return Plugin_Continue;
+	}
+	
+	if(IsClientInGame(client) && GetClientTeam(client) > 1 && !IsPlayerAlive(client))
+	{
+		char specArg[1 + 1];
+		GetCmdArg(1, specArg, sizeof(specArg));
+		int mode = StringToInt(specArg);
+	
+		if(mode == 4)
+		{
+			return Plugin_Continue;
+		}
+	
+		return Plugin_Handled;
+	}
+	
+	return Plugin_Continue;
+}
+
+public Action OnSpecPlayer(int client, const char[] command, int argc)
+{
+	if (!g_hCvar_FadeEnabled.BoolValue)
+	{
+		return Plugin_Continue;
+	}
+	
+	if(IsClientInGame(client) && GetClientTeam(client) > 1 && !IsPlayerAlive(client))
+	{
+		return Plugin_Handled;
+	}
+	
+	return Plugin_Continue;
 }
 
 public void CvarChanged_ForceCamera(ConVar convar, const char[] oldValue,
@@ -165,9 +211,22 @@ public void OnClientDisconnect_Post(int client)
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
-	if (g_hCvar_FadeEnabled.BoolValue)
+	if (g_hCvar_FadeEnabled.BoolValue && g_hCvar_CompFadeEnabled.BoolValue)
 	{
 		FadeAllDeadPlayers(false);
+	}
+	else if (g_hCvar_FadeEnabled.BoolValue && !g_hCvar_CompFadeEnabled.BoolValue)
+	{
+		for(int client = 1; client <= MaxClients; client++)
+		{
+			if(!IsClientInGame(client) || IsFakeClient(client))
+			{
+				continue;
+			}
+			
+			_in_death_fade[client] = true;
+			CreateTimer(0.1, Timer_FadePlayer, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+		}
 	}
 }
 
@@ -179,7 +238,7 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	{
 		return;
 	}
-
+	_in_death_fade[client] = false; // will this break anything? I don't think so?
 	_unfade_allowed[client] = true;
 
 	SendFadeMessageOne(client, FADE_FLAGS_CLEAR_FADE);
@@ -191,14 +250,22 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	{
 		return;
 	}
-
+	
 	int victim_userid = event.GetInt("userid");
 	int victim = GetClientOfUserId(victim_userid);
 	if (victim == 0 || !IsClientInGame(victim) || IsFakeClient(victim))
 	{
 		return;
 	}
-
+	
+	if (!g_hCvar_CompFadeEnabled.BoolValue)
+	{
+		_in_death_fade[victim] = true;
+		CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_DeathFadeFinished, victim_userid);
+		RequestFrame(SetObserverMode, victim);
+		return;
+	}
+	
 	_unfade_allowed[victim] = false;
 	_in_death_fade[victim] = true;
 	// Allow the player to see their surroundings during the death fade time.
@@ -232,7 +299,14 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	{
 		return;
 	}
-
+	
+	if(!g_hCvar_CompFadeEnabled.BoolValue && event.GetInt("team") > TEAM_SPECTATOR)
+	{
+		_in_death_fade[client] = false;
+		RequestFrame(SetObserverMode, client);
+		return;
+	}
+	
 	_in_death_fade[client] = false;
 
 	if (event.GetInt("team") <= TEAM_SPECTATOR)
@@ -248,6 +322,11 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	}
 }
 
+void SetObserverMode(int client)
+{
+	SetEntProp(client, Prop_Data, "m_iObserverMode", 4); // so the display doesn't mess up when mp_forcecamera is enabled
+}
+
 public Action Timer_FadePlayer(Handle timer, int userid)
 {
 	int client = GetClientOfUserId(userid);
@@ -259,6 +338,33 @@ public Action Timer_FadePlayer(Handle timer, int userid)
 		SendFadeMessageOne(client, FADE_FLAGS_ADD_FADE);
 	}
 	return Plugin_Stop;
+}
+
+void UnFadeAllDeadPlayers(bool ignore_clients_in_death_fade)
+{
+	int fade_clients[NEO_MAXPLAYERS];
+	int num_fade_clients = 0;
+	for (int client = 1; client <= MaxClients; ++client)
+	{
+		if (!IsClientInGame(client) || IsFakeClient(client) ||
+			GetClientTeam(client) <= TEAM_SPECTATOR ||
+			IsPlayerAlive(client))
+		{
+			continue;
+		}
+		if (ignore_clients_in_death_fade && _in_death_fade[client])
+		{
+			continue;
+		}
+		fade_clients[num_fade_clients++] = client;
+	}
+
+	if (num_fade_clients == 0)
+	{
+		return;
+	}
+
+	SendFadeMessage(fade_clients, num_fade_clients, FADE_FLAGS_CLEAR_FADE);
 }
 
 void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
@@ -290,10 +396,15 @@ void FadeAllDeadPlayers(bool ignore_clients_in_death_fade)
 
 public Action Timer_ReFade(Handle timer)
 {
-	if (g_hCvar_FadeEnabled.BoolValue)
+	if (g_hCvar_CompFadeEnabled.BoolValue && g_hCvar_FadeEnabled.BoolValue)
 	{
 		FadeAllDeadPlayers(true);
 	}
+	else if (g_hCvar_CompFadeEnabled.BoolValue && !g_hCvar_CompFadeEnabled)
+	{
+		UnFadeAllDeadPlayers(true);
+	}
+	
 	return Plugin_Continue;
 }
 
@@ -325,7 +436,7 @@ bool OneTimeUserMsgOverride(int client)
 public Action OnUserMsg_Fade(UserMsg msg_id, BfRead msg, const int[] players,
 	int playersNum, bool reliable, bool init)
 {
-	if (!g_hCvar_FadeEnabled.BoolValue || playersNum <= 0)
+	if (!g_hCvar_FadeEnabled.BoolValue || !g_hCvar_CompFadeEnabled.BoolValue || playersNum <= 0)
 	{
 		return Plugin_Continue;
 	}
@@ -409,7 +520,7 @@ public Action OnUserMsg_Fade(UserMsg msg_id, BfRead msg, const int[] players,
 public Action OnUserMsg_VguiMenu(UserMsg msg_id, BfRead msg,
 	const int[] players, int playersNum, bool reliable, bool init)
 {
-	if (!g_hCvar_FadeEnabled.BoolValue || playersNum <= 0)
+	if (!g_hCvar_FadeEnabled.BoolValue || !g_hCvar_CompFadeEnabled.BoolValue || playersNum <= 0)
 	{
 		return Plugin_Continue;
 	}
@@ -536,7 +647,7 @@ public Action OnUserMsg_VguiMenu(UserMsg msg_id, BfRead msg,
 public Action OnUserMsg_ResetHud(UserMsg msg_id, BfRead msg,
 	const int[] players, int playersNum, bool reliable, bool init)
 {
-	if (playersNum != 1)
+	if (playersNum != 1 || !g_hCvar_CompFadeEnabled)
 	{
 		return Plugin_Continue;
 	}
