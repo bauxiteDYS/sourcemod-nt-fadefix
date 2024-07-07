@@ -4,7 +4,9 @@ This plugin blocks any user messages used to remove the fade-to-black effect for
 It also periodically re-draws the fade to ensure it's still being applied.
 
 The plugin will also enable the fade-to-black on new round, so that players can't spectate their opponents' team composition and loadouts
-before spawning in themselves.
+before spawning in themselves.  
+
+Also includes a feature for semi-competitive games where dead players can spectate only their teammates and not be able to use freecam.
 
 ## Compile requirements
 * SourceMod 1.7 or newer.
