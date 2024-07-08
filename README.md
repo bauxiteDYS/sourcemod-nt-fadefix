@@ -1,7 +1,8 @@
 # SM-NT-PugSpec
 
-SourceMod plugin for Neotokyo that allows semi-fair spectating for dead players in semi-comp games.
-Experimental, may or may not work properly.
+SourceMod plugin for Neotokyo that allows semi-fair spectating for dead players in semi-comp games.  
+A modified version of Rain's nt_fadefix plugin, intended for a different purpose.  
+Experimental, may or may not work properly.  
 Use nt_fadefix by Rain if you don't feel like experimenting.
 
 ## Compile requirements
