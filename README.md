@@ -5,7 +5,7 @@ Experimental, may or may not work properly.
 Use nt_fadefix by Rain if you don't feel like experimenting.
 
 ## Compile requirements
-* SourceMod 1.10 or newer.
+* SourceMod 1.9 or newer.
 * [Neotokyo include](https://github.com/softashell/sourcemod-nt-include) v1.0 or newer.
 
 ## Server requirements
