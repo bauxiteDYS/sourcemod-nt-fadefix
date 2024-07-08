@@ -4,7 +4,7 @@
 public Plugin myinfo = {
 	name = "NT PUG Spec",
 	description = "Allows semi-fair spectating for dead players in semi-comp games",
-	author = "Modified version of Rain's fadefix plugin by bauxite",
+	author = "bauxite, modified version of Rain's fadefix plugin",
 	version = "0.1.0",
 	url = ""
 };
@@ -195,8 +195,11 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	}
 	
 	_in_death_fade[victim] = true;
-	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_DeathFadeFinished, victim_userid);
-	RequestFrame(SetObserverMode, victim);
+	
+	CreateTimer(DEATH_FADE_DURATION_SEC -1, Timer_FadePlayer, victim_userid);
+	CreateTimer(DEATH_FADE_DURATION_SEC, Timer_FadePlayer, victim_userid);
+	CreateTimer(DEATH_FADE_DURATION_SEC +1, Timer_FadePlayer, victim_userid);
+	CreateTimer(DEATH_TRANSITION_SEQUENCE_COMPLETE_SEC, Timer_DeathFadeFinished, victim_userid, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
@@ -278,7 +281,9 @@ public Action Timer_UnFade(Handle timer)
 
 public Action Timer_DeathFadeFinished(Handle timer, int userid)
 {
-	_in_death_fade[GetClientOfUserId(userid)] = false;
+	int client = GetClientOfUserId(userid);
+	_in_death_fade[client] = false;
+	RequestFrame(SetObserverMode, client);
 	return Plugin_Stop;
 }
 
