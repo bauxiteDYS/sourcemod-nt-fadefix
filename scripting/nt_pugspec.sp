@@ -5,7 +5,7 @@ public Plugin myinfo = {
 	name = "NT PUG Spec",
 	description = "Allows semi-fair spectating for dead players in semi-comp games",
 	author = "Modified version of Rain's fadefix plugin by bauxite",
-	version = "0.1.0",
+	version = "0.1.1",
 	url = ""
 };
 
